@@ -231,6 +231,13 @@ def getNoLucentTransform(is_test=False):
         ToTensor_l(is_test=is_test)
     ])
 
+# def getLucentTrainTransform():
+#     return transforms.Compose([
+#         RandomHorizontalFlip(),
+#         RandomChannelSwap(0.5),
+#         ToTensor_l()
+#     ])
+
 
 class LucentDatasetMemory(Dataset):
     def __init__(self, data, lucent_train, transform=None):
@@ -263,7 +270,7 @@ def getTranslucentData(batch_size):
     data, lucent_train = loadZipToMem('lucents_v1.zip', 'data/train.csv')
     data_, lucent_test = loadZipToMem('lucents_v1.zip', 'data/test.csv')
 
-    transformed_training = LucentDatasetMemory(data, lucent_train, transform=getNoLucentTransform()) #re-removed transforms
+    transformed_training = LucentDatasetMemory(data, lucent_train, transform=getNoLucentTransform())
     transformed_testing = LucentDatasetMemory(data_, lucent_test, transform=getNoLucentTransform())
 
     return DataLoader(transformed_training, batch_size, shuffle=True), \

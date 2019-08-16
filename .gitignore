@@ -1,0 +1,6 @@
+*.zip
+models/
+runs/
+.idea/
+__pycache__/
+

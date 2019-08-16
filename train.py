@@ -24,7 +24,7 @@ def main():
     parser.add_argument('--lr', '--learning-rate', default=0.0001, type=float, help='initial learning rate')
     parser.add_argument('--bs', default=4, type=int, help='batch size')
     args = parser.parse_args()
-    SAVE_DIR = 'models/190813_mod2'
+    SAVE_DIR = 'models/190814_mod3'
 
     with torch.cuda.device(0):
 
@@ -63,7 +63,7 @@ def main():
 
         # Start training...
     #    for epoch in range(args.epochs):
-        for epoch in range(0, 30):
+        for epoch in range(0, 35):
             batch_time = AverageMeter()
             losses_nyu = AverageMeter()
             losses_lucent = AverageMeter()
@@ -77,13 +77,21 @@ def main():
 
             # decide #(iter)
             tot_len = min(len(train_loader), len(train_loader_l))
-            print(tot_len)
+            # print(tot_len)
 
             trainiter = iter(train_loader)
             trainiter_l = iter(train_loader_l)
 
-            print(trainiter)
-            print(trainiter_l)
+            # print(trainiter)
+            # print(trainiter_l)
+
+            # Hand-craft loss weight of main task
+            weight_t2loss = [.0001]*3 + [.000316]*3 + \
+                            [.001]*3 + [.00316]*3 + \
+                            [.01]*3 + [.0316]*3 + \
+                            [.1]*3 + [.316]*3 + \
+                            [1.0]*3 + [3.16]*3 + \
+                            [10.0]*5
 
             # for i, sample_batched in enumerate(zip(train_loader, train_loader_l)):
             # for i, sample_batched in enumerate(train_loader_l):
@@ -133,7 +141,7 @@ def main():
                 # Apply random mask to it
                 rand_index = [random.randint(0, N2-1) for k in range(N1)]
                 mask_new = mask_raw[rand_index, :, :, :]
-                depth_nyu_masked = DepthNorm(resize2d(depth_nyu_n, (480, 640))) * mask_new
+                depth_nyu_masked = resize2d(depth_nyu_n, (480, 640)) * mask_new
 
                 # Predict
                 output_t1 = model(image_nyu, depth_nyu_masked)
@@ -176,9 +184,9 @@ def main():
                 #          + l1_criterion(grad_y(output), grad_y(depth_ln), mask_post)
                 l_ssim_t2 = torch.clamp((1 - ssim(output_t2, depth_gt_n, val_range=1000.0/10.0)) * 0.5, 0, 1)
 
-                loss_nyu = (0.01 * l_depth_t1) + (0.1 * l_grad_t1) + (0.1 * l_ssim_t1)
+                loss_nyu = (0.1 * l_depth_t1) + (1.0* l_grad_t1) + (1.0 * l_ssim_t1)
                 loss_lucent = (0.1 * l_depth_t2) + (1.0 * l_grad_t2) + (0 * l_ssim_t2)
-                loss = loss_nyu + loss_lucent
+                loss = loss_nyu + (weight_t2loss[epoch] * loss_lucent)
 
                 # Log losses
                 losses_nyu.update(loss_nyu.data.item(), image_nyu.size(0))
@@ -196,7 +204,7 @@ def main():
 
                 # Log progress
                 niter = epoch*N+i
-                if i % 5 == 0:
+                if i % 10 == 0:
                     # Print to console
                     print('Epoch: [{0}][{1}/{2}]\t'
                     'Time {batch_time.val:.3f} ({batch_time.sum:.3f})\t'
@@ -224,8 +232,8 @@ def main():
 
     print('Program terminated.')
 
-# TODO: check max(mask)(DONE), trim mask for completion stage, periodically save test results
-## TODO: fix max epoch, check save path, check randomness per epoch
+
+# TODO: implement RandomHorizontalFlip and RandomChannelSwap for lucent objects.
 def LogProgress(model, writer, test_loader_l, epoch, save_dir):
     with torch.cuda.device(0):
         model.eval()
