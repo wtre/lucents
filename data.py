@@ -159,6 +159,43 @@ def getTrainingTestingData(batch_size):
 # custom functions below
 # =============================================================================
 
+class RandomHorizontalFlip_l(object):
+    def __call__(self, sample):
+        image, depth_raw, mask, depth_truth = sample['image'], sample['depth_raw'], sample['mask'], sample['depth_truth']
+
+        if not _is_pil_image(image):
+            raise TypeError(
+                'img should be PIL Image. Got {}'.format(type(image)))
+        # if not _is_pil_image(depth):
+        #     raise TypeError(
+        #         'img should be PIL Image. Got {}'.format(type(depth)))
+
+        if random.random() < 0.5:
+            image = image.transpose(Image.FLIP_LEFT_RIGHT)
+            depth_raw = depth_raw.transpose(Image.FLIP_LEFT_RIGHT)
+            mask = mask.transpose(Image.FLIP_LEFT_RIGHT)
+            depth_truth = depth_truth.transpose(Image.FLIP_LEFT_RIGHT)
+
+        return {'image': image, 'depth_raw': depth_raw, 'mask': mask, 'depth_truth': depth_truth}
+
+
+
+class RandomChannelSwap_l(object):
+    def __init__(self, probability):
+        from itertools import permutations
+        self.probability = probability
+        self.indices = list(permutations(range(3), 3))
+
+    def __call__(self, sample):
+        image, depth_raw, mask, depth_truth = sample['image'], sample['depth_raw'], sample['mask'], sample['depth_truth']
+        if not _is_pil_image(image): raise TypeError('img should be PIL Image. Got {}'.format(type(image)))
+        # if not _is_pil_image(depth): raise TypeError('img should be PIL Image. Got {}'.format(type(depth)))
+        if random.random() < self.probability:
+            image = np.asarray(image)
+            image = Image.fromarray(image[...,list(self.indices[random.randint(0, len(self.indices) - 1)])])
+        return {'image': image, 'depth_raw': depth_raw, 'mask': mask, 'depth_truth': depth_truth}
+
+
 class ToTensor_l(object):
     def __init__(self, is_test=False):
         self.is_test = is_test
@@ -231,12 +268,12 @@ def getNoLucentTransform(is_test=False):
         ToTensor_l(is_test=is_test)
     ])
 
-# def getLucentTrainTransform():
-#     return transforms.Compose([
-#         RandomHorizontalFlip(),
-#         RandomChannelSwap(0.5),
-#         ToTensor_l()
-#     ])
+def getLucentTrainTransform():
+    return transforms.Compose([
+        RandomHorizontalFlip_l(),
+        RandomChannelSwap_l(0.5),
+        ToTensor_l()
+    ])
 
 
 class LucentDatasetMemory(Dataset):
@@ -270,7 +307,7 @@ def getTranslucentData(batch_size):
     data, lucent_train = loadZipToMem('lucents_v1.zip', 'data/train.csv')
     data_, lucent_test = loadZipToMem('lucents_v1.zip', 'data/test.csv')
 
-    transformed_training = LucentDatasetMemory(data, lucent_train, transform=getNoLucentTransform())
+    transformed_training = LucentDatasetMemory(data, lucent_train, transform=getLucentTrainTransform())
     transformed_testing = LucentDatasetMemory(data_, lucent_test, transform=getNoLucentTransform())
 
     return DataLoader(transformed_training, batch_size, shuffle=True), \

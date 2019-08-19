@@ -24,7 +24,7 @@ def main():
     parser.add_argument('--lr', '--learning-rate', default=0.0001, type=float, help='initial learning rate')
     parser.add_argument('--bs', default=4, type=int, help='batch size')
     args = parser.parse_args()
-    SAVE_DIR = 'models/190814_mod3'
+    SAVE_DIR = 'models/190816_mod4'
 
     with torch.cuda.device(0):
 
@@ -160,12 +160,14 @@ def main():
 
                 # Predict
                 output_t2 = model(image_raw, depth_raw_n)
+                output_t2_n = DepthNorm(output_t2)
                 # print("  (2): " + str(output.shape))
 
                 if i % 150 == 0:
                     vutils.save_image(depth_raw, '%s/img/B_ln_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True)
                     vutils.save_image(depth_gt, '%s/img/B_gt_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True)
-                    vutils.save_image(DepthNorm(output_t2), '%s/img/B_out_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True)
+                    vutils.save_image(output_t2_n, '%s/img/B_out_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(10, 1000))
+                    vutils.save_image(output_t2_n-depth_gt, '%s/img/B_zdiff_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(-300, 300))
 
                 ###########################
                 # (3) Update the network parameters
@@ -233,7 +235,7 @@ def main():
     print('Program terminated.')
 
 
-# TODO: implement RandomHorizontalFlip and RandomChannelSwap for lucent objects.
+# TODO: check loss function that influcences left and right boundary of image.
 def LogProgress(model, writer, test_loader_l, epoch, save_dir):
     with torch.cuda.device(0):
         model.eval()
@@ -260,10 +262,10 @@ def LogProgress(model, writer, test_loader_l, epoch, save_dir):
         writer.add_image('Train.3.Diff', colorize(vutils.make_grid(torch.abs(output-depth).data, nrow=6, normalize=False)), epoch)
 
         depth_resized = resize2d(depth_in_n, (240, 320))
-        vutils.save_image(DepthNorm(depth), '%s/img/truth_%06d.png' % (save_dir, epoch), normalize=True)
-        vutils.save_image(output, '%s/img/out_%06d.png' % (save_dir, epoch), normalize=True)
-        vutils.save_image(output - depth_resized, '%s/img/diff_%06d.png' % (save_dir, epoch), normalize=True)
-        vutils.save_image(depth_resized, '%s/img/in_%06d.png' % (save_dir, epoch), normalize=True)
+        vutils.save_image(DepthNorm(depth), '%s/img/truth_%06d.png' % (save_dir, epoch), normalize=True, range=(10, 2000))
+        vutils.save_image(output, '%s/img/out_%06d.png' % (save_dir, epoch), normalize=True, range=(10, 2000))
+        vutils.save_image(output - depth_resized, '%s/img/diff_%06d.png' % (save_dir, epoch), normalize=True, range=(-300, 300))
+        vutils.save_image(depth_resized, '%s/img/in_%06d.png' % (save_dir, epoch), normalize=True, range=(10, 2000))
 
         del image, depth_in_n, depth_in, depth, output, depth_resized
 
