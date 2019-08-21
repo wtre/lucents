@@ -10,6 +10,7 @@ from tensorboardX import SummaryWriter
 
 import os
 import random
+import numpy as np
 
 # from model import Model
 from model_rgbd import Model_rgbd, resize2d
@@ -24,7 +25,7 @@ def main():
     parser.add_argument('--lr', '--learning-rate', default=0.0001, type=float, help='initial learning rate')
     parser.add_argument('--bs', default=4, type=int, help='batch size')
     args = parser.parse_args()
-    SAVE_DIR = 'models/190816_mod4'
+    SAVE_DIR = 'models/190820_mod6'
 
     with torch.cuda.device(0):
 
@@ -61,9 +62,19 @@ def main():
         l1_criterion_masked = MaskedL1()
         grad_l1_criterion_masked = MaskedL1Grad()
 
+        # Hand-craft loss weight of main task
+        interval1 = 1
+        interval2 = 2
+        weight_t2loss = [.0001] * interval1 + [.000316] * interval1+ \
+                        [.001] * interval1 + [.00316] * interval1 + \
+                        [.01] * interval1 + [.0316] * interval1 + \
+                        [.1] * interval1 + [.316] * interval1 + \
+                        [1.0] * interval1 + [3.16] * interval1 + \
+                        [10.0] * interval2
+
         # Start training...
     #    for epoch in range(args.epochs):
-        for epoch in range(0, 35):
+        for epoch in range(0, 10*interval1 + interval2):
             batch_time = AverageMeter()
             losses_nyu = AverageMeter()
             losses_lucent = AverageMeter()
@@ -84,14 +95,6 @@ def main():
 
             # print(trainiter)
             # print(trainiter_l)
-
-            # Hand-craft loss weight of main task
-            weight_t2loss = [.0001]*3 + [.000316]*3 + \
-                            [.001]*3 + [.00316]*3 + \
-                            [.01]*3 + [.0316]*3 + \
-                            [.1]*3 + [.316]*3 + \
-                            [1.0]*3 + [3.16]*3 + \
-                            [10.0]*5
 
             # for i, sample_batched in enumerate(zip(train_loader, train_loader_l)):
             # for i, sample_batched in enumerate(train_loader_l):
@@ -147,7 +150,7 @@ def main():
                 output_t1 = model(image_nyu, depth_nyu_masked)
                 # print("  (1): " + str(output_task1.shape))
 
-                if i % 150 == 0:
+                if i % 150 == 0 or i < 5:
                     vutils.save_image(DepthNorm(depth_nyu_masked), '%s/img/A_masked_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True)
                     vutils.save_image(DepthNorm(output_t1), '%s/img/A_out_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True)
 
@@ -163,11 +166,23 @@ def main():
                 output_t2_n = DepthNorm(output_t2)
                 # print("  (2): " + str(output.shape))
 
-                if i % 150 == 0:
-                    vutils.save_image(depth_raw, '%s/img/B_ln_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True)
-                    vutils.save_image(depth_gt, '%s/img/B_gt_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True)
-                    vutils.save_image(output_t2_n, '%s/img/B_out_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(10, 1000))
-                    vutils.save_image(output_t2_n-depth_gt, '%s/img/B_zdiff_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(-300, 300))
+                if i % 150 == 0 or i < 5:
+                    vutils.save_image(depth_raw, '%s/img/B_ln_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(0, 1000))
+                    vutils.save_image(depth_gt, '%s/img/B_gt_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(0, 1000))
+                    vutils.save_image(output_t2_n, '%s/img/B_out_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(0, 1000))
+                    vutils.save_image(output_t2_n-depth_gt, '%s/img/B_zdiff_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(-500, 500))
+
+                if i % 150 == 0 :
+                    o2 = output_t2.cpu().detach().numpy()
+                    o3 = output_t2_n.cpu().detach().numpy()
+                    og = depth_gt.cpu().numpy()
+                    nm = DepthNorm(depth_nyu_masked).cpu().numpy()
+                    ng = depth_nyu.cpu().numpy()
+                    print('========')
+                    print("Output_t2:" + str(np.min(o2)) + "~" + str(np.max(o2)) + " (" + str(np.mean(o2)) +
+                          ") // Converted to depth: " + str(np.min(o3)) + "~" + str(np.max(o3)) + " (" + str(np.mean(o3)) + ")")
+                    print("GT depth : " + str(np.min(og)) + "~" + str(np.max(og)) +
+                          " // NYU GT depth from 0.0~" + str(np.max(nm)) + " to " + str(np.min(ng)) + "~" + str(np.max(ng)) + " (" + str(np.mean(ng)) + ")")
 
                 ###########################
                 # (3) Update the network parameters
@@ -206,7 +221,7 @@ def main():
 
                 # Log progress
                 niter = epoch*N+i
-                if i % 10 == 0:
+                if i % 15 == 0:
                     # Print to console
                     print('Epoch: [{0}][{1}/{2}]\t'
                     'Time {batch_time.val:.3f} ({batch_time.sum:.3f})\t'
@@ -219,7 +234,7 @@ def main():
                     # Log to tensorboard
                     writer.add_scalar('Train/Loss', losses.val, niter)
 
-                if i % 150 == 0:
+                if i % 15 == 0:
                     LogProgress(model, writer, test_loader_l, niter, SAVE_DIR)
                     path = os.path.join(SAVE_DIR, 'model_overtraining.pth')
                     torch.save(model.cpu().state_dict(), path) # saving model
@@ -235,7 +250,7 @@ def main():
     print('Program terminated.')
 
 
-# TODO: check loss function that influcences left and right boundary of image.
+# TODO: Re-examine the imageloader normalization schemes, and logically deal THA problem
 def LogProgress(model, writer, test_loader_l, epoch, save_dir):
     with torch.cuda.device(0):
         model.eval()
@@ -262,10 +277,10 @@ def LogProgress(model, writer, test_loader_l, epoch, save_dir):
         writer.add_image('Train.3.Diff', colorize(vutils.make_grid(torch.abs(output-depth).data, nrow=6, normalize=False)), epoch)
 
         depth_resized = resize2d(depth_in_n, (240, 320))
-        vutils.save_image(DepthNorm(depth), '%s/img/truth_%06d.png' % (save_dir, epoch), normalize=True, range=(10, 2000))
-        vutils.save_image(output, '%s/img/out_%06d.png' % (save_dir, epoch), normalize=True, range=(10, 2000))
-        vutils.save_image(output - depth_resized, '%s/img/diff_%06d.png' % (save_dir, epoch), normalize=True, range=(-300, 300))
-        vutils.save_image(depth_resized, '%s/img/in_%06d.png' % (save_dir, epoch), normalize=True, range=(10, 2000))
+        vutils.save_image(depth, '%s/img/truth_%06d.png' % (save_dir, epoch), normalize=True, range=(0, 1000))
+        vutils.save_image(output, '%s/img/out_%06d.png' % (save_dir, epoch), normalize=True, range=(0, 1000))
+        vutils.save_image(output - depth_resized, '%s/img/diff_%06d.png' % (save_dir, epoch), normalize=True, range=(-500, 500))
+        vutils.save_image(DepthNorm(depth_resized), '%s/img/in_%06d.png' % (save_dir, epoch), normalize=True, range=(0, 1000))
 
         del image, depth_in_n, depth_in, depth, output, depth_resized
 

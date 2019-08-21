@@ -9,7 +9,8 @@ def DepthNorm(depth, maxDepth=1000.0):
     # return maxDepth / depth
     depth_n = maxDepth / depth
     z = torch.zeros(depth.size()).cuda()
-    return torch.where(depth > 0, depth_n.to('cuda'), z)
+    depth_n = torch.clamp(depth_n, 1, 1000)
+    return torch.where(depth != 0, depth_n.to('cuda'), z)
 
 class AverageMeter(object):
     def __init__(self):

@@ -221,12 +221,13 @@ class ToTensor_l(object):
         #     depth_truth = self.to_tensor(depth_truth).float() * 1000
 
         # Note that our image is uint16, and NYU_v2 >train< is uint8. Hence this.
-        depth_raw = self.to_tensor(depth_raw).float() / 1000
-        depth_truth = self.to_tensor(depth_truth).float() / 1000
+        depth_raw = self.to_tensor(depth_raw).float() / 10
+        depth_truth = self.to_tensor(depth_truth).float() / 10
 
         # put in expected range
-        depth_raw = torch.clamp(depth_raw, 0, 1000)
-        depth_truth = torch.clamp(depth_truth, 0, 1000)     # Minimum value is 0, instead of 10.
+        depth_raw = torch.clamp(depth_raw, 0, 5000)
+        depth_truth = torch.clamp(depth_truth, 0, 5000)     # Minimum value is 0, instead of 10.
+        mask = torch.clamp(mask, 0, 1)
 
         return {'image': image, 'depth_raw': depth_raw, 'mask': mask, 'depth_truth': depth_truth}
 
