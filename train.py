@@ -65,12 +65,12 @@ def main():
         # Hand-craft loss weight of main task
         interval1 = 1
         interval2 = 2
-        weight_t2loss = [.0001] * interval1 + [.000316] * interval1+ \
-                        [.001] * interval1 + [.00316] * interval1 + \
+        weight_t2loss = [.001] * interval1 + [.00316] * interval1 + \
                         [.01] * interval1 + [.0316] * interval1 + \
                         [.1] * interval1 + [.316] * interval1 + \
                         [1.0] * interval1 + [3.16] * interval1 + \
-                        [10.0] * interval2
+                        [10.0] * interval1 + [31.6] * interval1 + \
+                        [100.0] * interval2
 
         # Start training...
     #    for epoch in range(args.epochs):
@@ -234,7 +234,7 @@ def main():
                     # Log to tensorboard
                     writer.add_scalar('Train/Loss', losses.val, niter)
 
-                if i % 15 == 0:
+                if i % 150 == 0:
                     LogProgress(model, writer, test_loader_l, niter, SAVE_DIR)
                     path = os.path.join(SAVE_DIR, 'model_overtraining.pth')
                     torch.save(model.cpu().state_dict(), path) # saving model
@@ -250,7 +250,7 @@ def main():
     print('Program terminated.')
 
 
-# TODO: Re-examine the imageloader normalization schemes, and logically deal THA problem
+# TODO: Fit B/Out imsave range, and check again if the mask resizes properly
 def LogProgress(model, writer, test_loader_l, epoch, save_dir):
     with torch.cuda.device(0):
         model.eval()

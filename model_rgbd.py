@@ -119,6 +119,13 @@ def resize2d(img, size):
         t = (F.adaptive_avg_pool2d(Variable(img), size)).data
     return t
 
+def resize2dmask(mask, size):
+    with torch.no_grad():
+        o_in = torch.zeros(mask.size()).cuda()
+        o_out = torch.zeros(size).cuda()
+        t = (o_out - F.adaptive_avg_pool2d(Variable(o_in - mask), size)).data
+    return t
+
 # def trim2d(img, ratio):
 #     with torch.no_grad():
 #         (batch_size, _, _, _) = img.size()
