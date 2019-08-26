@@ -13,7 +13,7 @@ import random
 import numpy as np
 
 # from model import Model
-from model_rgbd import Model_rgbd, resize2d
+from model_rgbd import Model_rgbd, resize2d, resize2dmask
 from loss import ssim, grad_x, grad_y, MaskedL1, MaskedL1Grad
 from data import getTrainingTestingData, getTranslucentData
 from utils import AverageMeter, DepthNorm, colorize
@@ -25,7 +25,7 @@ def main():
     parser.add_argument('--lr', '--learning-rate', default=0.0001, type=float, help='initial learning rate')
     parser.add_argument('--bs', default=4, type=int, help='batch size')
     args = parser.parse_args()
-    SAVE_DIR = 'models/190820_mod6'
+    SAVE_DIR = 'models/190826_mod7'
 
     with torch.cuda.device(0):
 
@@ -167,9 +167,9 @@ def main():
                 # print("  (2): " + str(output.shape))
 
                 if i % 150 == 0 or i < 5:
-                    vutils.save_image(depth_raw, '%s/img/B_ln_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(0, 1000))
-                    vutils.save_image(depth_gt, '%s/img/B_gt_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(0, 1000))
-                    vutils.save_image(output_t2_n, '%s/img/B_out_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(0, 1000))
+                    vutils.save_image(depth_raw, '%s/img/B_ln_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(0, 500))
+                    vutils.save_image(depth_gt, '%s/img/B_gt_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(0, 500))
+                    vutils.save_image(output_t2_n, '%s/img/B_out_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(0, 500))
                     vutils.save_image(output_t2_n-depth_gt, '%s/img/B_zdiff_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(-500, 500))
 
                 if i % 150 == 0 :
@@ -187,7 +187,10 @@ def main():
                 ###########################
                 # (3) Update the network parameters
 
-                mask_post = resize2d(mask_raw, (240, 320))
+                mask_post = resize2dmask(mask_raw, (240, 320))
+
+                if i % 150 == 0 or i < 1:
+                    vutils.save_image(mask_post, '%s/img/_mask_%06d.png' % (SAVE_DIR, epoch * 10000 + i), normalize=True)
 
                 # Compute the loss
                 l_depth_t1 = l1_criterion(output_t1, depth_nyu_n)
@@ -250,7 +253,7 @@ def main():
     print('Program terminated.')
 
 
-# TODO: Fit B/Out imsave range, and check again if the mask resizes properly
+# TODO: Check end results, maybe fix tensorflowx
 def LogProgress(model, writer, test_loader_l, epoch, save_dir):
     with torch.cuda.device(0):
         model.eval()
@@ -277,10 +280,11 @@ def LogProgress(model, writer, test_loader_l, epoch, save_dir):
         writer.add_image('Train.3.Diff', colorize(vutils.make_grid(torch.abs(output-depth).data, nrow=6, normalize=False)), epoch)
 
         depth_resized = resize2d(depth_in_n, (240, 320))
-        vutils.save_image(depth, '%s/img/truth_%06d.png' % (save_dir, epoch), normalize=True, range=(0, 1000))
-        vutils.save_image(output, '%s/img/out_%06d.png' % (save_dir, epoch), normalize=True, range=(0, 1000))
+        vutils.save_image(depth, '%s/img/truth_%06d.png' % (save_dir, epoch), normalize=True, range=(0, 500))
+        vutils.save_image(output, '%s/img/out_%06d.png' % (save_dir, epoch), normalize=True, range=(0, 500))
         vutils.save_image(output - depth_resized, '%s/img/diff_%06d.png' % (save_dir, epoch), normalize=True, range=(-500, 500))
-        vutils.save_image(DepthNorm(depth_resized), '%s/img/in_%06d.png' % (save_dir, epoch), normalize=True, range=(0, 1000))
+        vutils.save_image(resize2d(depth_in, (240, 320)), '%s/img/inDS_%06d.png' % (save_dir, epoch), range=(0, 500))
+        vutils.save_image(DepthNorm(depth_resized), '%s/img/inFF_%06d.png' % (save_dir, epoch), normalize=True, range=(0, 500))
 
         del image, depth_in_n, depth_in, depth, output, depth_resized
 

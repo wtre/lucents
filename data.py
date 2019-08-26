@@ -204,7 +204,7 @@ class ToTensor_l(object):
         image, depth_raw, mask, depth_truth = sample['image'], sample['depth_raw'], sample['mask'], sample['depth_truth']
 
         image = image.crop((0, 14, 512, 398)).resize((640, 480))
-        mask = mask.crop((0, 14, 512, 398)).resize((640, 480))
+        mask = mask.crop((0, 14, 512, 398)).resize((640, 480)) # set as 'PIL.IMage.NEARST' by default.
 
         image = self.to_tensor(image)
         mask, _, _ = mask.split()   # this needs to be dealt with data gathering script though.
