@@ -3,6 +3,7 @@ import matplotlib.cm
 import numpy as np
 
 import torch
+import torchvision.utils as vutils
 
 
 def DepthNorm(depth, maxDepth=1000.0): 
@@ -48,3 +49,25 @@ def colorize(value, vmin=10, vmax=1000, cmap='plasma'):
     img = value[:,:,:3]
 
     return img.transpose((2,0,1))
+
+
+def save_error_image(tensor, filename, nrow=8, padding=2,
+               normalize=False, range=None, scale_each=False, pad_value=0):
+    """Export Diverging image grid.
+    Make sure range equals (-a, a)
+    """
+    from PIL import Image
+
+    # Hand-craft diverging colormap (b-w-r)
+    z = torch.zeros(tensor.size()).cuda()
+    tensor_r = torch.where(tensor > 0, z, tensor)
+    tensor_g = torch.where(tensor > 0, tensor.mul_(-1), tensor)
+    tensor_b = torch.where(tensor > 0, tensor.mul_(-1), z)
+    tensor_merged = torch.cat((tensor_r, tensor_g, tensor_b), 1)
+
+    grid = vutils.make_grid(tensor_merged, nrow=nrow, padding=padding, pad_value=pad_value,
+                     normalize=normalize, range=(range[0], 0), scale_each=scale_each)
+    # Add 0.5 after unnormalizing to [0, 255] to round to nearest integer
+    ndarr = grid.mul_(255).add_(0.5).clamp_(0, 255).permute(1, 2, 0).to('cpu', torch.uint8).numpy()
+    im = Image.fromarray(ndarr)
+    im.save(filename)

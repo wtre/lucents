@@ -16,7 +16,7 @@ import numpy as np
 from model_rgbd import Model_rgbd, resize2d, resize2dmask
 from loss import ssim, grad_x, grad_y, MaskedL1, MaskedL1Grad
 from data import getTrainingTestingData, getTranslucentData
-from utils import AverageMeter, DepthNorm, colorize
+from utils import AverageMeter, DepthNorm, colorize, save_error_image
 
 def main():
     # Arguments
@@ -108,8 +108,6 @@ def main():
                     continue
                 # print('in loop.')
 
-                optimizer.zero_grad()
-
                 # Prepare sample and target
                 image_nyu = torch.autograd.Variable(sample_batched['image'].cuda())
                 depth_nyu = torch.autograd.Variable(sample_batched['depth'].cuda(non_blocking=True))
@@ -153,6 +151,7 @@ def main():
                 if i % 150 == 0 or i < 5:
                     vutils.save_image(DepthNorm(depth_nyu_masked), '%s/img/A_masked_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True)
                     vutils.save_image(DepthNorm(output_t1), '%s/img/A_out_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True)
+                    save_error_image(DepthNorm(output_t1) - depth_nyu, '%s/img/A_diff_%06d.png' % (SAVE_DIR, epoch * 10000 + i), normalize=True, range=(-500, 500))
 
                 ###########################
                 # (2) Main task: Undistort translucent object
@@ -170,7 +169,7 @@ def main():
                     vutils.save_image(depth_raw, '%s/img/B_ln_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(0, 500))
                     vutils.save_image(depth_gt, '%s/img/B_gt_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(0, 500))
                     vutils.save_image(output_t2_n, '%s/img/B_out_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(0, 500))
-                    vutils.save_image(output_t2_n-depth_gt, '%s/img/B_zdiff_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(-500, 500))
+                    save_error_image(output_t2_n-depth_gt, '%s/img/B_zdiff_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(-500, 500))
 
                 if i % 150 == 0 :
                     o2 = output_t2.cpu().detach().numpy()
@@ -214,6 +213,7 @@ def main():
                 losses.update(loss.data.item(), image_nyu.size(0) + image_raw.size(0))
 
                 # Update step
+                optimizer.zero_grad() #movied to its new position
                 loss.backward()
                 optimizer.step()
 
@@ -238,13 +238,13 @@ def main():
                     writer.add_scalar('Train/Loss', losses.val, niter)
 
                 if i % 150 == 0:
-                    LogProgress(model, writer, test_loader_l, niter, SAVE_DIR)
+                    LogProgress(model, writer, test_loader, test_loader_l, niter, SAVE_DIR)
                     path = os.path.join(SAVE_DIR, 'model_overtraining.pth')
                     torch.save(model.cpu().state_dict(), path) # saving model
                     model.cuda() # moving model to GPU for further training
 
             # Record epoch's intermediate results
-            LogProgress(model, writer, test_loader_l, niter, SAVE_DIR)
+            LogProgress(model, writer, test_loader, test_loader_l, niter, SAVE_DIR)
             writer.add_scalar('Train/Loss.avg', losses.avg, epoch)
             # all the saves come from https://discuss.pytorch.org/t/how-to-save-a-model-from-a-previous-epoch/20252
 
@@ -252,18 +252,42 @@ def main():
 
     print('Program terminated.')
 
-
-# TODO: Check end results, maybe fix tensorflowx
-def LogProgress(model, writer, test_loader_l, epoch, save_dir):
+# TODO: oput pretext test imgs, Refine resize alg of Test GT images
+def LogProgress(model, writer, test_loader, test_loader_l, epoch, save_dir):
     with torch.cuda.device(0):
         model.eval()
-        sequential = test_loader_l
-        sample_batched = next(iter(sequential))
-        image = torch.autograd.Variable(sample_batched['image'].cuda())
-        depth_in = torch.autograd.Variable(sample_batched['depth_raw'].cuda())
-        depth_in_n = DepthNorm(depth_in)
+        sample_batched = next(iter(test_loader))
+        sample_batched_l = next(iter(test_loader_l))
 
-        depth = torch.autograd.Variable(sample_batched['depth_truth'].cuda(non_blocking=True))
+        # (1) Pretext task : test and save
+        image_nyu = torch.autograd.Variable(sample_batched['image'].cuda())
+        depth_nyu = torch.autograd.Variable(sample_batched['depth'].cuda(non_blocking=True))
+
+        mask_raw = torch.autograd.Variable(sample_batched_l['mask'].cuda())
+
+        depth_nyu_n = DepthNorm(depth_nyu)
+
+        # Apply random mask to it
+        ordered_index = list(range(depth_nyu.shape[0])) # NOTE: NYU test batch size shouldn't be bigger than lucent's.
+        mask_new = mask_raw[ordered_index, :, :, :]
+        depth_nyu_masked = resize2d(depth_nyu_n, (480, 640)) * mask_new
+
+        # Predict
+        depth_out_t1 = DepthNorm( model(image_nyu, depth_nyu_masked) )
+
+        dn_resized = resize2d(depth_nyu, (240, 320))
+        vutils.save_image(depth_out_t1, '%s/img/1out_%06d.png' % (save_dir, epoch), normalize=True, range=(0, 1000))
+        vutils.save_image(dn_resized, '%s/img/1in_%06d.png' % (save_dir, epoch), range=(0, 1000))
+        vutils.save_image(depth_out_t1 - dn_resized, '%s/img/1out_%06d.png' % (save_dir, epoch), normalize=True, range=(-300, 300))
+
+        del image_nyu, depth_nyu, mask_raw, depth_out_t1, dn_resized
+
+        # (2) Main task : test and save
+        image = torch.autograd.Variable(sample_batched_l['image'].cuda())
+        depth_in = torch.autograd.Variable(sample_batched_l['depth_raw'].cuda())
+        htped_in = DepthNorm(depth_in)
+
+        depth_gt = torch.autograd.Variable(sample_batched_l['depth_truth'].cuda(non_blocking=True))
 
         # print('====//====')
         # print(image.shape)
@@ -274,19 +298,22 @@ def LogProgress(model, writer, test_loader_l, epoch, save_dir):
         # print(" " + str(torch.max(depth)) + " " + str(torch.min(depth)))
 
         if epoch == 0: writer.add_image('Train.1.Image', vutils.make_grid(image.data, nrow=6, normalize=True), epoch)
-        if epoch == 0: writer.add_image('Train.2.Depth', colorize(vutils.make_grid(depth.data, nrow=6, normalize=False)), epoch)
-        output = DepthNorm( model(image, depth_in_n) )
-        writer.add_image('Train.3.Ours', colorize(vutils.make_grid(output.data, nrow=6, normalize=False)), epoch)
-        writer.add_image('Train.3.Diff', colorize(vutils.make_grid(torch.abs(output-depth).data, nrow=6, normalize=False)), epoch)
+        if epoch == 0: writer.add_image('Train.2.Depth', colorize(vutils.make_grid(depth_gt.data, nrow=6, normalize=False)), epoch)
 
-        depth_resized = resize2d(depth_in_n, (240, 320))
-        vutils.save_image(depth, '%s/img/truth_%06d.png' % (save_dir, epoch), normalize=True, range=(0, 500))
-        vutils.save_image(output, '%s/img/out_%06d.png' % (save_dir, epoch), normalize=True, range=(0, 500))
-        vutils.save_image(output - depth_resized, '%s/img/diff_%06d.png' % (save_dir, epoch), normalize=True, range=(-500, 500))
-        vutils.save_image(resize2d(depth_in, (240, 320)), '%s/img/inDS_%06d.png' % (save_dir, epoch), range=(0, 500))
-        vutils.save_image(DepthNorm(depth_resized), '%s/img/inFF_%06d.png' % (save_dir, epoch), normalize=True, range=(0, 500))
+        depth_out_t2 = DepthNorm( model(image, htped_in) )
 
-        del image, depth_in_n, depth_in, depth, output, depth_resized
+
+        writer.add_image('Train.3.Ours', colorize(vutils.make_grid(depth_out_t2.data, nrow=6, normalize=False)), epoch)
+        writer.add_image('Train.3.Diff', colorize(vutils.make_grid(torch.abs(depth_out_t2-depth_gt).data, nrow=6, normalize=False)), epoch)
+
+        depth_resized = resize2d(htped_in, (240, 320))
+        vutils.save_image(depth_gt, '%s/img/2truth_%06d.png' % (save_dir, epoch), normalize=True, range=(0, 500))
+        vutils.save_image(depth_out_t2, '%s/img/2out_%06d.png' % (save_dir, epoch), normalize=True, range=(0, 500))
+        save_error_image(depth_out_t2 - depth_resized, '%s/img/2corr_%06d.png' % (save_dir, epoch), normalize=True, range=(-300, 300))
+        vutils.save_image(resize2d(depth_in, (240, 320)), '%s/img/2inDS_%06d.png' % (save_dir, epoch), range=(0, 500))
+        vutils.save_image(DepthNorm(depth_resized), '%s/img/2inFF_%06d.png' % (save_dir, epoch), normalize=True, range=(0, 500))
+
+        del image, htped_in, depth_in, depth_gt, depth_out_t2, depth_resized
 
 if __name__ == '__main__':
     main()
