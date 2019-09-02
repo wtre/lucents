@@ -25,7 +25,7 @@ def main():
     parser.add_argument('--lr', '--learning-rate', default=0.0001, type=float, help='initial learning rate')
     parser.add_argument('--bs', default=4, type=int, help='batch size')
     args = parser.parse_args()
-    SAVE_DIR = 'models/190826_mod7'
+    SAVE_DIR = 'models/190830_mod8'
 
     with torch.cuda.device(0):
 
@@ -45,7 +45,7 @@ def main():
     # =============================================================================
 
         # Training parameters
-        optimizer = torch.optim.Adam( model.parameters(), args.lr )
+        optimizer = torch.optim.Adam( model.parameters(), args.lr, amsgrad=True )
         batch_size = args.bs
         prefix = 'densenet_' + str(batch_size)
 
@@ -203,8 +203,8 @@ def main():
                 #          + l1_criterion(grad_y(output), grad_y(depth_ln), mask_post)
                 l_ssim_t2 = torch.clamp((1 - ssim(output_t2, depth_gt_n, val_range=1000.0/10.0)) * 0.5, 0, 1)
 
-                loss_nyu = (0.1 * l_depth_t1) + (1.0* l_grad_t1) + (1.0 * l_ssim_t1)
-                loss_lucent = (0.1 * l_depth_t2) + (1.0 * l_grad_t2) + (0 * l_ssim_t2)
+                loss_nyu = (0.1 * l_depth_t1) #+ (1.0* l_grad_t1) + (1.0 * l_ssim_t1)
+                loss_lucent = (0.1 * l_depth_t2) #+ (1.0 * l_grad_t2) + (0 * l_ssim_t2)
                 loss = loss_nyu + (weight_t2loss[epoch] * loss_lucent)
 
                 # Log losses
@@ -252,7 +252,12 @@ def main():
 
     print('Program terminated.')
 
-# TODO: oput pretext test imgs, Refine resize alg of Test GT images
+# Keras-specific explanation on loss spikes:
+#   https://stackoverflow.com/questions/47824598/why-does-my-training-loss-have-regular-spikes
+# TWo: https://discuss.pytorch.org/t/loss-explodes-in-validation-takes-a-few-training-steps-to-recover-only-when-using-distributeddataparallel/41660
+# BN might be an issue: https://www.kaggle.com/c/quickdraw-doodle-recognition/discussion/71366
+# TODO: must have mutiple loder per size, for same image? must decide!
+# TODO (Recently fixed!): Switch to AMSGrad, reduced errormap range
 def LogProgress(model, writer, test_loader, test_loader_l, epoch, save_dir):
     with torch.cuda.device(0):
         model.eval()
@@ -262,6 +267,8 @@ def LogProgress(model, writer, test_loader, test_loader_l, epoch, save_dir):
         # (1) Pretext task : test and save
         image_nyu = torch.autograd.Variable(sample_batched['image'].cuda())
         depth_nyu = torch.autograd.Variable(sample_batched['depth'].cuda(non_blocking=True))
+
+        # print("   " + str(torch.max(depth_nyu)) + " " + str(torch.min(depth_nyu)))
 
         mask_raw = torch.autograd.Variable(sample_batched_l['mask'].cuda())
 
@@ -277,8 +284,8 @@ def LogProgress(model, writer, test_loader, test_loader_l, epoch, save_dir):
 
         dn_resized = resize2d(depth_nyu, (240, 320))
         vutils.save_image(depth_out_t1, '%s/img/1out_%06d.png' % (save_dir, epoch), normalize=True, range=(0, 1000))
-        vutils.save_image(dn_resized, '%s/img/1in_%06d.png' % (save_dir, epoch), range=(0, 1000))
-        vutils.save_image(depth_out_t1 - dn_resized, '%s/img/1out_%06d.png' % (save_dir, epoch), normalize=True, range=(-300, 300))
+        vutils.save_image(depth_nyu, '%s/img/1in_%06d.png' % (save_dir, epoch), normalize=True, range=(0, 1000))
+        save_error_image(depth_out_t1 - dn_resized, '%s/img/1diff_%06d.png' % (save_dir, epoch), normalize=True, range=(-300, 300))
 
         del image_nyu, depth_nyu, mask_raw, depth_out_t1, dn_resized
 
@@ -306,14 +313,29 @@ def LogProgress(model, writer, test_loader, test_loader_l, epoch, save_dir):
         writer.add_image('Train.3.Ours', colorize(vutils.make_grid(depth_out_t2.data, nrow=6, normalize=False)), epoch)
         writer.add_image('Train.3.Diff', colorize(vutils.make_grid(torch.abs(depth_out_t2-depth_gt).data, nrow=6, normalize=False)), epoch)
 
-        depth_resized = resize2d(htped_in, (240, 320))
+        # dl = depth_in.cpu().numpy()
+        # hl = htped_in.cpu().numpy()
+        # dr = resize2d(depth_in, (240, 320)).cpu().numpy()
+        # hr = resize2d(htped_in, (240, 320)).cpu().numpy()
+        # do = depth_out_t2.cpu().detach().numpy()
+        # gr = depth_gt.cpu().numpy()
+        # print('/=/=/=/=/=/')
+        # print("  Depth input (original size):" + str(np.min(dl)) + "~" + str(np.max(dl)) + " (" + str(np.mean(dl)) + ")")
+        # print("  Depth Normed (original size):" + str(np.min(hl)) + "~" + str(np.max(hl)) + " (" + str(np.mean(hl)) + ")")
+        #
+        # print("  Depth input (resized):" + str(np.min(dr)) + "~" + str(np.max(dr)) + " (" + str(np.mean(dr)) + ")")
+        # print("  Depth Normed (resized):" + str(np.min(hr)) + "~" + str(np.max(hr)) + " (" + str(np.mean(hr)) + ")")
+        #
+        # print("  Output converted to depth:" + str(np.min(do)) + "~" + str(np.max(do)) + " (" + str(np.mean(do)) + ")")
+        # print("  GT depth (original size):" + str(np.min(gr)) + "~" + str(np.max(gr)) + " (" + str(np.mean(gr)) + ")")
+
+        vutils.save_image(depth_in, '%s/img/2inDS_%06d.png' % (save_dir, epoch), normalize=True, range=(0, 500))
+        vutils.save_image(DepthNorm(htped_in), '%s/img/2inFF_%06d.png' % (save_dir, epoch), normalize=True, range=(0, 500))
         vutils.save_image(depth_gt, '%s/img/2truth_%06d.png' % (save_dir, epoch), normalize=True, range=(0, 500))
         vutils.save_image(depth_out_t2, '%s/img/2out_%06d.png' % (save_dir, epoch), normalize=True, range=(0, 500))
-        save_error_image(depth_out_t2 - depth_resized, '%s/img/2corr_%06d.png' % (save_dir, epoch), normalize=True, range=(-300, 300))
-        vutils.save_image(resize2d(depth_in, (240, 320)), '%s/img/2inDS_%06d.png' % (save_dir, epoch), range=(0, 500))
-        vutils.save_image(DepthNorm(depth_resized), '%s/img/2inFF_%06d.png' % (save_dir, epoch), normalize=True, range=(0, 500))
-
-        del image, htped_in, depth_in, depth_gt, depth_out_t2, depth_resized
+        save_error_image(resize2d(depth_out_t2, (480, 640)) - depth_in, '%s/img/2corr_%06d.png' % (save_dir, epoch), normalize=True, range=(-50, 50))
+        save_error_image(depth_out_t2 - depth_gt, '%s/img/2diff_%06d.png' % (save_dir, epoch), normalize=True, range=(-50, 50))
+        del image, htped_in, depth_in, depth_gt, depth_out_t2
 
 if __name__ == '__main__':
     main()
