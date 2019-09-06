@@ -153,11 +153,19 @@ def getTrainingTestingData(batch_size):
     transformed_training = depthDatasetMemory(data, nyu2_train, transform=getDefaultTrainTransform())
     transformed_testing = depthDatasetMemory(data, nyu2_train, transform=getNoTransform())
 
-    return DataLoader(transformed_training, batch_size, shuffle=True), DataLoader(transformed_testing, batch_size, shuffle=False)
+    return DataLoader(transformed_training, batch_size, shuffle=True, drop_last=True), \
+           DataLoader(transformed_testing, batch_size, shuffle=False, drop_last=True)
 
 # =============================================================================
 # custom functions below
 # =============================================================================
+
+def getTestingDataOnly(batch_size):
+    data, nyu2_test = loadZipToMem('nyu_data.zip', 'data/nyu2_test.csv')
+    transformed_testing = depthDatasetMemory(data, nyu2_test, transform=getNoTransform())
+
+    return DataLoader(transformed_testing, batch_size, shuffle=False, drop_last=True)
+
 
 class RandomHorizontalFlip_l(object):
     def __call__(self, sample):
@@ -305,11 +313,11 @@ class LucentDatasetMemory(Dataset):
         return len(self.lucent_dataset)
 
 def getTranslucentData(batch_size):
-    data, lucent_train = loadZipToMem('lucents_v1.zip', 'data/train.csv')
-    data_, lucent_test = loadZipToMem('lucents_v1.zip', 'data/test.csv')
+    data, lucent_train = loadZipToMem('lucents_v1_moretest.zip', 'data/train.csv')
+    data_, lucent_test = loadZipToMem('lucents_v1_moretest.zip', 'data/test.csv')
 
     transformed_training = LucentDatasetMemory(data, lucent_train, transform=getLucentTrainTransform())
     transformed_testing = LucentDatasetMemory(data_, lucent_test, transform=getNoLucentTransform())
 
-    return DataLoader(transformed_training, batch_size, shuffle=True), \
-           DataLoader(transformed_testing, batch_size*3, shuffle=False)     # Note that test batch is manually enlarged!
+    return DataLoader(transformed_training, batch_size, shuffle=True, drop_last=True), \
+           DataLoader(transformed_testing, batch_size*3, shuffle=False, drop_last=True)     # Note that test batch is manually enlarged!

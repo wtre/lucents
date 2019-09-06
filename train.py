@@ -253,8 +253,9 @@ def main():
 #   https://stackoverflow.com/questions/47824598/why-does-my-training-loss-have-regular-spikes
 # TWo: https://discuss.pytorch.org/t/loss-explodes-in-validation-takes-a-few-training-steps-to-recover-only-when-using-distributeddataparallel/41660
 # BN might be an issue: https://www.kaggle.com/c/quickdraw-doodle-recognition/discussion/71366
-# TODO: gradient clipping? // implement robust loss? // hole augment (for task trasnfer)
-# TODO (Recently fixed!): Switch to AMSGrad // Remove abundant images
+# TODO: add mask to error map // hole augment (for task trasnfer)
+#       gradient clipping? // implement robust loss?
+#   Recently fixed: Switch to AMSGrad // Remove abundant images // add testset (known objs)
 def LogProgress(model, writer, test_loader, test_loader_l, epoch, n, save_dir):
     with torch.cuda.device(0):
         model.eval()
@@ -347,6 +348,7 @@ def LogProgress(model, writer, test_loader, test_loader_l, epoch, n, save_dir):
             save_error_image(resize2d(depth_out_t2, (480, 640)) - depth_in, '%s/img/2corr_%06d_%02d.png' % (save_dir, n, i), normalize=True, range=(-50, 50))
             save_error_image(depth_out_t2 - depth_gt, '%s/img/2diff_%06d_%02d.png' % (save_dir, n, i), normalize=True, range=(-50, 50))
             del image, htped_in, depth_in, depth_gt, depth_out_t2
+
 
 if __name__ == '__main__':
     main()
