@@ -125,4 +125,4 @@ def test_model(save_dir):
 
 
 if __name__ == '__main__':
-    test_model('models/190903_mod9')
+    test_model('models/190830_mod8')

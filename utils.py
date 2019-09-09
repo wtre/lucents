@@ -13,6 +13,13 @@ def DepthNorm(depth, maxDepth=1000.0):
     depth_n = torch.clamp(depth_n, 1, 1000)
     return torch.where(depth != 0, depth_n.to('cuda'), z)
 
+
+def thresh_mask(depth_gt, depth_raw, thresh=3):
+    dd = depth_raw - depth_gt
+    z = torch.zeros(depth_raw.size()).cuda()
+    o = torch.ones(depth_raw.size()).cuda()
+    return torch.where(dd > thresh, z, o)
+
 class AverageMeter(object):
     def __init__(self):
         self.reset()

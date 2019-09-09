@@ -16,7 +16,7 @@ import numpy as np
 from model_rgbd import Model_rgbd, resize2d, resize2dmask
 from loss import ssim, grad_x, grad_y, MaskedL1, MaskedL1Grad
 from data import getTrainingTestingData, getTranslucentData
-from utils import AverageMeter, DepthNorm, colorize, save_error_image
+from utils import AverageMeter, DepthNorm, thresh_mask, colorize, save_error_image
 
 def main():
     # Arguments
@@ -25,7 +25,7 @@ def main():
     parser.add_argument('--lr', '--learning-rate', default=0.0001, type=float, help='initial learning rate')
     parser.add_argument('--bs', default=4, type=int, help='batch size')
     args = parser.parse_args()
-    SAVE_DIR = 'models/190903_mod9'
+    SAVE_DIR = 'models/190909_mod10'
 
     with torch.cuda.device(0):
 
@@ -50,7 +50,7 @@ def main():
         prefix = 'densenet_' + str(batch_size)
 
         # Load data
-        train_loader, test_loader = getTrainingTestingData(batch_size=3)
+        train_loader, test_loader = getTrainingTestingData(batch_size=2)
         train_loader_l, test_loader_l = getTranslucentData(batch_size=1)
         # Test batch is manually enlarged! See getTranslucentData's return.
 
@@ -65,6 +65,12 @@ def main():
         # Hand-craft loss weight of main task
         interval1 = 1
         interval2 = 2
+        weight_txloss = [.0317] * interval1 + [.1] * interval1 + \
+                        [.316] * interval1 + [1] * interval1 + \
+                        [3.16] * interval1 + [10] * interval1 + \
+                        [10] * interval1 + [5.62] * interval1 + \
+                        [3.16] * interval1 + [1.78] * interval1 + \
+                        [1] * interval2
         weight_t2loss = [.001] * interval1 + [.00316] * interval1 + \
                         [.01] * interval1 + [.0316] * interval1 + \
                         [.1] * interval1 + [.316] * interval1 + \
@@ -80,6 +86,7 @@ def main():
             batch_time = AverageMeter()
             losses_nyu = AverageMeter()
             losses_lucent = AverageMeter()
+            losses_hole = AverageMeter()
             losses = AverageMeter()
             N = len(train_loader)
 
@@ -145,7 +152,7 @@ def main():
                 output_t1 = model(image_nyu, depth_nyu_masked)
                 # print("  (1): " + str(output_task1.shape))
 
-                if i % 150 == 0 or i < 5:
+                if i % 150 == 0 or i < 2:
                     vutils.save_image(DepthNorm(depth_nyu_masked), '%s/img/A_masked_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True)
                     vutils.save_image(DepthNorm(output_t1), '%s/img/A_out_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True)
                     save_error_image(DepthNorm(output_t1) - depth_nyu, '%s/img/A_diff_%06d.png' % (SAVE_DIR, epoch * 10000 + i), normalize=True, range=(-500, 500))
@@ -162,7 +169,7 @@ def main():
                 output_t2_n = DepthNorm(output_t2)
                 # print("  (2): " + str(output.shape))
 
-                if i % 150 == 0 or i < 5:
+                if i % 150 == 0 or i < 2:
                     vutils.save_image(depth_raw, '%s/img/B_ln_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(0, 500))
                     vutils.save_image(depth_gt, '%s/img/B_gt_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(0, 500))
                     vutils.save_image(output_t2_n, '%s/img/B_out_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(0, 500))
@@ -181,6 +188,31 @@ def main():
                           " // NYU GT depth from 0.0~" + str(np.max(nm)) + " to " + str(np.min(ng)) + "~" + str(np.max(ng)) + " (" + str(np.mean(ng)) + ")")
 
                 ###########################
+                # (x) Transfer task: Fill translucent object
+
+                depth_gt_large = resize2d(depth_gt, (480, 640))
+                object_mask = thresh_mask(depth_gt_large, depth_raw)
+                depth_holed = depth_raw * object_mask
+
+                # print('========')
+                # print(object_mask.shape)
+                # print(" " + str(torch.max(object_mask)) + " " + str(torch.min(object_mask)))
+                # print(depth_holed.shape)
+                # print(" " + str(torch.max(depth_holed)) + " " + str(torch.min(depth_holed)))
+                # print(image_raw.shape)
+                # print(" " + str(torch.max(image_raw)) + " " + str(torch.min(image_raw)))
+
+                output_tx = model(image_raw, DepthNorm(depth_holed))
+                output_tx_n = DepthNorm(output_tx)
+
+                if i % 150 == 0 or i < 2:
+                    vutils.save_image(DepthNorm(depth_holed), '%s/img/C_in_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(0, 500))
+                    vutils.save_image(object_mask, '%s/img/C_mask_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(0, 1.5))
+                    vutils.save_image(output_tx_n, '%s/img/C_out_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(0, 500))
+                    save_error_image(output_tx_n-depth_gt, '%s/img/C_zdiff_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(-500, 500))
+
+
+                ###########################
                 # (3) Update the network parameters
 
                 mask_post = resize2dmask(mask_raw, (240, 320))
@@ -195,18 +227,21 @@ def main():
 
                 l_depth_t2 = l1_criterion_masked(output_t2, depth_gt_n, mask_post)
                 l_grad_t2 = grad_l1_criterion_masked(output_t2, depth_gt_n, mask_post)
-                # l_depth = l1_criterion(output*mask_post, depth_ln*mask_post)
-                # l_grad = l1_criterion(grad_x(output), grad_x(depth_ln), mask_post) \
-                #          + l1_criterion(grad_y(output), grad_y(depth_ln), mask_post)
-                l_ssim_t2 = torch.clamp((1 - ssim(output_t2, depth_gt_n, val_range=1000.0/10.0)) * 0.5, 0, 1)
+                # l_ssim_t2 = torch.clamp((1 - ssim(output_t2, depth_gt_n, val_range=1000.0/10.0)) * 0.5, 0, 1)
 
-                loss_nyu = (0.1 * l_depth_t1) #+ (1.0* l_grad_t1) + (1.0 * l_ssim_t1)
-                loss_lucent = (0.1 * l_depth_t2) #+ (1.0 * l_grad_t2) + (0 * l_ssim_t2)
-                loss = loss_nyu + (weight_t2loss[epoch] * loss_lucent)
+                l_depth_tx = l1_criterion_masked(output_tx, depth_gt_n, mask_post)
+                l_grad_tx = grad_l1_criterion_masked(output_tx, depth_gt_n, mask_post)
+                # l_ssim_tx = torch.clamp((1 - ssim(output_tx, depth_nyu_n, val_range=1000.0 / 10.0)) * 0.5, 0, 1)
+
+                loss_nyu = (0.1 * l_depth_t1) + (1.0 * l_grad_t1) + (1.0 * l_ssim_t1)
+                loss_lucent = (0.1 * l_depth_t2) + (1.0 * l_grad_t2) #+ (0 * l_ssim_t2)
+                loss_hole = (0.1 * l_depth_tx) + (1.0 * l_grad_tx) #+ (0 * l_ssim_tx)
+                loss = loss_nyu + (weight_t2loss[epoch] * loss_lucent) + (weight_txloss[epoch] * loss_hole)
 
                 # Log losses
                 losses_nyu.update(loss_nyu.data.item(), image_nyu.size(0))
                 losses_lucent.update(loss_lucent.data.item(), image_raw.size(0))
+                losses_hole.update(loss_hole.data.item(), image_raw.size(0))
                 losses.update(loss.data.item(), image_nyu.size(0) + image_raw.size(0))
 
                 # Update step
@@ -228,8 +263,9 @@ def main():
                     'ETA {eta}\t'
                     'Loss {loss.val:.4f} ({loss.avg:.4f}) ||\t'
                     'NYU {l1.val:.4f} ({l1.avg:.4f})\t'
-                    'LUC {l2.val:.4f} ({l2.avg:.4f})'
-                    .format(epoch, i, N, batch_time=batch_time, loss=losses, l1=losses_nyu, l2=losses_lucent, eta=eta))
+                    'LUC {l2.val:.4f} ({l2.avg:.4f})\t'
+                    'TX {lx.val:.4f} ({lx.avg:.4f})'
+                    .format(epoch, i, N, batch_time=batch_time, loss=losses, l1=losses_nyu, l2=losses_lucent, lx=losses_hole, eta=eta))
 
                     # Log to tensorboard
                     writer.add_scalar('Train/Loss', losses.val, niter)
