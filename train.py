@@ -16,7 +16,7 @@ import numpy as np
 from model_rgbd import Model_rgbd, resize2d, resize2dmask
 from loss import ssim, grad_x, grad_y, MaskedL1, MaskedL1Grad
 from data import getTrainingTestingData, getTranslucentData
-from utils import AverageMeter, DepthNorm, thresh_mask, colorize, save_error_image
+from utils import AverageMeter, DepthNorm, thresh_mask, colorize, save_error_image, blend_depth
 
 def main():
     # Arguments
@@ -25,7 +25,7 @@ def main():
     parser.add_argument('--lr', '--learning-rate', default=0.0001, type=float, help='initial learning rate')
     parser.add_argument('--bs', default=4, type=int, help='batch size')
     args = parser.parse_args()
-    SAVE_DIR = 'models/190909_mod10'
+    SAVE_DIR = 'models/190911_mod11'
 
     with torch.cuda.device(0):
 
@@ -188,11 +188,12 @@ def main():
                           " // NYU GT depth from 0.0~" + str(np.max(nm)) + " to " + str(np.min(ng)) + "~" + str(np.max(ng)) + " (" + str(np.mean(ng)) + ")")
 
                 ###########################
-                # (x) Transfer task: Fill translucent object
+                # (x) Transfer task: /*Fill*/ reconstruct sudo-translucent object
 
                 depth_gt_large = resize2d(depth_gt, (480, 640))
                 object_mask = thresh_mask(depth_gt_large, depth_raw)
-                depth_holed = depth_raw * object_mask
+                # depth_holed = depth_raw * object_mask
+                depth_holed = blend_depth(depth_raw, depth_gt_large, object_mask)
 
                 # print('========')
                 # print(object_mask.shape)
@@ -270,7 +271,7 @@ def main():
                     # Log to tensorboard
                     writer.add_scalar('Train/Loss', losses.val, niter)
 
-                if i % 300 == 0:
+                if i % 540 == 0:
                     LogProgress(model, writer, test_loader, test_loader_l, niter, epoch*10000+i, SAVE_DIR)
                     path = os.path.join(SAVE_DIR, 'model_overtraining.pth')
                     torch.save(model.cpu().state_dict(), path) # saving model
@@ -289,9 +290,10 @@ def main():
 #   https://stackoverflow.com/questions/47824598/why-does-my-training-loss-have-regular-spikes
 # TWo: https://discuss.pytorch.org/t/loss-explodes-in-validation-takes-a-few-training-steps-to-recover-only-when-using-distributeddataparallel/41660
 # BN might be an issue: https://www.kaggle.com/c/quickdraw-doodle-recognition/discussion/71366
-# TODO: add mask to error map // hole augment (for task trasnfer)
-#       gradient clipping? // implement robust loss?
-#   Recently fixed: Switch to AMSGrad // Remove abundant images // add testset (known objs)
+# TODO: add mask to error map // gradient clipping? // implement robust loss?
+#   Recently fixed: implement kyungmin's idea of "blended depth task"
+
+
 def LogProgress(model, writer, test_loader, test_loader_l, epoch, n, save_dir):
     with torch.cuda.device(0):
         model.eval()

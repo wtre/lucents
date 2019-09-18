@@ -20,6 +20,15 @@ def thresh_mask(depth_gt, depth_raw, thresh=3):
     o = torch.ones(depth_raw.size()).cuda()
     return torch.where(dd > thresh, z, o)
 
+
+def blend_depth(depth_raw, depth_gt, mask, blend_range=(0 ,1)):
+    y_raw = torch.empty(depth_raw.shape[0]).uniform_(*blend_range).cuda()
+    y = y_raw.reshape(-1, 1, 1, 1)
+    depth_blended = y*depth_raw + (1-y)*depth_gt
+
+    return depth_blended * mask
+
+
 class AverageMeter(object):
     def __init__(self):
         self.reset()
