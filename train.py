@@ -25,7 +25,7 @@ def main():
     parser.add_argument('--lr', '--learning-rate', default=0.0001, type=float, help='initial learning rate')
     parser.add_argument('--bs', default=4, type=int, help='batch size')
     args = parser.parse_args()
-    SAVE_DIR = 'models/190911_mod11'
+    SAVE_DIR = 'models/190925_mod12'
 
     with torch.cuda.device(0):
 
@@ -263,15 +263,16 @@ def main():
                     'Time {batch_time.val:.3f} ({batch_time.sum:.3f})\t'
                     'ETA {eta}\t'
                     'Loss {loss.val:.4f} ({loss.avg:.4f}) ||\t'
-                    'NYU {l1.val:.4f} ({l1.avg:.4f})\t'
-                    'LUC {l2.val:.4f} ({l2.avg:.4f})\t'
-                    'TX {lx.val:.4f} ({lx.avg:.4f})'
-                    .format(epoch, i, N, batch_time=batch_time, loss=losses, l1=losses_nyu, l2=losses_lucent, lx=losses_hole, eta=eta))
+                    'NYU {l1.val:.4f} ({l1.avg:.4f}) [{l1d:.4f} | {l1g:.4f} | {l1s:.4f}]\t'
+                    'LUC {l2.val:.4f} ({l2.avg:.4f}) [{l2d:.4f} | {l2g:.4f}]\t'
+                    'TX {lx.val:.4f} ({lx.avg:.4f}) [{lxd:.4f} | {lxg:.4f}]'
+                    .format(epoch, i, N, batch_time=batch_time, loss=losses, l1=losses_nyu, l1d=l_depth_t1, l1g=l_grad_t1, l1s=l_ssim_t1,
+                            l2=losses_lucent, l2d=l_depth_t2, l2g=l_grad_t2, lx=losses_hole, lxd=l_depth_tx, lxg=l_grad_tx, eta=eta))
 
                     # Log to tensorboard
                     writer.add_scalar('Train/Loss', losses.val, niter)
 
-                if i % 540 == 0:
+                if i % 750 == 0:
                     LogProgress(model, writer, test_loader, test_loader_l, niter, epoch*10000+i, SAVE_DIR)
                     path = os.path.join(SAVE_DIR, 'model_overtraining.pth')
                     torch.save(model.cpu().state_dict(), path) # saving model
@@ -338,7 +339,7 @@ def LogProgress(model, writer, test_loader, test_loader_l, epoch, n, save_dir):
                 vutils.save_image(depth_nyu_masked, '%s/img/1in_%06d_%02d.png' % (save_dir, n, i), normalize=True, range=(0, 1000))
             save_error_image(depth_out_t1 - dn_resized, '%s/img/1diff_%06d_%02d.png' % (save_dir, n, i), normalize=True, range=(-300, 300))
 
-            del image_nyu, depth_nyu, mask_raw, depth_out_t1, dn_resized
+            del image_nyu, depth_nyu, depth_out_t1, dn_resized
 
             # (2) Main task : test and save
             image = torch.autograd.Variable(sample_batched_l['image'].cuda())
@@ -383,9 +384,12 @@ def LogProgress(model, writer, test_loader, test_loader_l, epoch, n, save_dir):
                 vutils.save_image(DepthNorm(htped_in), '%s/img/2inFF_%06d_%02d.png' % (save_dir, n, i), normalize=True, range=(0, 500))
                 vutils.save_image(depth_gt, '%s/img/2truth_%06d_%02d.png' % (save_dir, n, i), normalize=True, range=(0, 500))
             vutils.save_image(depth_out_t2, '%s/img/2out_%06d_%02d.png' % (save_dir, n, i), normalize=True, range=(0, 500))
-            save_error_image(resize2d(depth_out_t2, (480, 640)) - depth_in, '%s/img/2corr_%06d_%02d.png' % (save_dir, n, i), normalize=True, range=(-50, 50))
-            save_error_image(depth_out_t2 - depth_gt, '%s/img/2diff_%06d_%02d.png' % (save_dir, n, i), normalize=True, range=(-50, 50))
-            del image, htped_in, depth_in, depth_gt, depth_out_t2
+
+            mask_small = resize2d(mask_raw, (240, 320))
+            save_error_image(resize2d(depth_out_t2, (480, 640)) - depth_in, '%s/img/2corr_%06d_%02d.png'
+                             % (save_dir, n, i), normalize=True, range=(-50, 50), mask=mask_raw)
+            save_error_image(depth_out_t2 - depth_gt, '%s/img/2diff_%06d_%02d.png' % (save_dir, n, i), normalize=True, range=(-50, 50), mask=mask_small)
+            del image, htped_in, depth_in, depth_gt, depth_out_t2, mask_raw, mask_small
 
 
 if __name__ == '__main__':

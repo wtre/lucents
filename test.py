@@ -13,7 +13,7 @@ from data import getTestingDataOnly, getTranslucentData
 from utils import  DepthNorm, colorize, save_error_image
 
 
-def test_model(save_dir):
+def test_model(save_dir, save_img=True, evaluate=True):
 
     if not os.path.exists('%s/testimg' % save_dir):
         os.makedirs('%s/testimg' % save_dir)
@@ -25,7 +25,7 @@ def test_model(save_dir):
     print('model loaded for evaluation.')
 
     # Load data
-    test_loader = getTestingDataOnly(batch_size=3)
+    test_loader = getTestingDataOnly(batch_size=2)
     train_loader_l, test_loader_l = getTranslucentData(batch_size=1)
 
     with torch.cuda.device(0):
@@ -53,33 +53,33 @@ def test_model(save_dir):
 
             depth_nyu_n = DepthNorm(depth_nyu)
 
-            # Apply random mask to it
+            # # Apply random mask to it
             ordered_index = list(range(depth_nyu.shape[0])) # NOTE: NYU test batch size shouldn't be bigger than lucent's.
             mask_new = mask_raw[ordered_index, :, :, :]
             depth_nyu_masked = resize2d(depth_nyu_n, (480, 640)) * mask_new
 
-            # if i >= 9:
-            #     print('====/ %02d /====' % i)
-            #     print(image_nyu.shape)
-            #     print(" " + str(torch.max(image_nyu)) + " " + str(torch.min(image_nyu)))
-            #     print(depth_nyu.shape)
-            #     print(" " + str(torch.max(depth_nyu)) + " " + str(torch.min(depth_nyu)))
-            #     print(mask_new.shape)
-            #     print(" " + str(torch.max(mask_new)) + " " + str(torch.min(mask_new)))
+            if i <= 1:
+                print('====/ %02d /====' % i)
+                print(image_nyu.shape)
+                print(" " + str(torch.max(image_nyu)) + " " + str(torch.min(image_nyu)))
+                print(depth_nyu.shape)
+                print(" " + str(torch.max(depth_nyu)) + " " + str(torch.min(depth_nyu)))
+                print(mask_new.shape)
+                print(" " + str(torch.max(mask_new)) + " " + str(torch.min(mask_new)))
 
             # Predict
             depth_out_t1 = DepthNorm( model(image_nyu, depth_nyu_masked) )
 
             dn_resized = resize2d(depth_nyu, (240, 320))
 
-            # Save image
+            if save_img:
+                # Save image
+                vutils.save_image(depth_out_t1, '%s/testimg/1out_%02d.png' % (save_dir, i), normalize=True, range=(0, 1000))
+                if not os.path.exists('%s/testimg/1in_000000_%02d.png' % (save_dir, i)):
+                    vutils.save_image(depth_nyu_masked, '%s/testimg/1in_%02d.png' % (save_dir, i), normalize=True, range=(0, 1000))
+                save_error_image(depth_out_t1 - dn_resized, '%s/testimg/1diff_%02d.png' % (save_dir, i), normalize=True, range=(-300, 300))
 
-            vutils.save_image(depth_out_t1, '%s/testimg/1out_%02d.png' % (save_dir, i), normalize=True, range=(0, 1000))
-            if not os.path.exists('%s/testimg/1in_000000_%02d.png' % (save_dir, i)):
-                vutils.save_image(depth_nyu_masked, '%s/testimg/1in_%02d.png' % (save_dir, i), normalize=True, range=(0, 1000))
-            save_error_image(depth_out_t1 - dn_resized, '%s/testimg/1diff_%02d.png' % (save_dir, i), normalize=True, range=(-300, 300))
-
-            del image_nyu, depth_nyu, mask_raw, depth_out_t1, dn_resized
+            del image_nyu, depth_nyu, depth_out_t1, dn_resized
 
             # (2) Main task : test and save
             image = torch.autograd.Variable(sample_batched_l['image'].cuda())
@@ -88,15 +88,26 @@ def test_model(save_dir):
 
             depth_gt = torch.autograd.Variable(sample_batched_l['depth_truth'].cuda(non_blocking=True))
 
-            # print('====//====')
-            # print(image.shape)
-            # print(" " + str(torch.max(image)) + " " + str(torch.min(image)))
-            # print(depth_in.shape)
-            # print(" " + str(torch.max(depth_in)) + " " + str(torch.min(depth_in)))
-            # print(depth.shape)
-            # print(" " + str(torch.max(depth)) + " " + str(torch.min(depth)))
-
             depth_out_t2 = DepthNorm( model(image, htped_in) )
+
+            mask_small = resize2dmask(mask_raw, (240, 320))
+            # if i > 0 and i < 3:
+            #     print('====//====')
+            #     print(true_y.shape)
+            #     print(pred_y.shape)
+            #     print(mask_y.shape)
+            print(" " + str(torch.max(depth_out_t2)) + " " + str(torch.min(depth_out_t2)))
+            print(" " + str(torch.max(depth_gt)) + " " + str(torch.min(depth_gt)))
+            if i == 0:
+                (s0, _, s2, s3) = depth_out_t2.size()
+                # https://stackoverflow.com/questions/22392497/how-to-add-a-new-row-to-an-empty-numpy-array
+                true_y = np.empty((s0, 0, s2, s3), float)
+                pred_y = np.empty((s0, 0, s2, s3), float)
+                mask_y = np.empty((s0, 0, s2, s3), float)
+            if evaluate:
+                true_y = np.append(true_y, depth_gt.cpu().numpy(), axis=1)
+                pred_y = np.append(pred_y, depth_out_t2.detach().cpu().numpy(), axis=1)
+                mask_y = np.append(mask_y, mask_small.cpu().numpy(), axis=1)
 
             # dl = depth_in.cpu().numpy()
             # hl = htped_in.cpu().numpy()
@@ -114,15 +125,52 @@ def test_model(save_dir):
             # print("  Output converted to depth:" + str(np.min(do)) + "~" + str(np.max(do)) + " (" + str(np.mean(do)) + ")")
             # print("  GT depth (original size):" + str(np.min(gr)) + "~" + str(np.max(gr)) + " (" + str(np.mean(gr)) + ")")
 
-            if not os.path.exists('%s/testimg/2truth_000000_%02d.png' % (save_dir, i)):
-                vutils.save_image(depth_in, '%s/testimg/2inDS_%02d.png' % (save_dir, i), normalize=True, range=(0, 500))
-                vutils.save_image(DepthNorm(htped_in), '%s/testimg/2inFF_%02d.png' % (save_dir, i), normalize=True, range=(0, 500))
-                vutils.save_image(depth_gt, '%s/testimg/2truth_%02d.png' % (save_dir, i), normalize=True, range=(0, 500))
-            vutils.save_image(depth_out_t2, '%s/testimg/2out_%02d.png' % (save_dir, i), normalize=True, range=(0, 500))
-            save_error_image(resize2d(depth_out_t2, (480, 640)) - depth_in, '%s/testimg/2corr_%02d.png' % (save_dir, i), normalize=True, range=(-50, 50))
-            save_error_image(depth_out_t2 - depth_gt, '%s/testimg/2diff_%02d.png' % (save_dir, i), normalize=True, range=(-50, 50))
-            del image, htped_in, depth_in, depth_gt, depth_out_t2
+            if save_img:
+                if not os.path.exists('%s/testimg/2truth_000000_%02d.png' % (save_dir, i)):
+                    vutils.save_image(depth_in, '%s/testimg/2inDS_%02d.png' % (save_dir, i), normalize=True, range=(0, 500))
+                    vutils.save_image(DepthNorm(htped_in), '%s/testimg/2inFF_%02d.png' % (save_dir, i), normalize=True, range=(0, 500))
+                    vutils.save_image(depth_gt, '%s/testimg/2truth_%02d.png' % (save_dir, i), normalize=True, range=(0, 500))
+                vutils.save_image(depth_out_t2, '%s/testimg/2out_%02d.png' % (save_dir, i), normalize=True, range=(0, 500))
+                save_error_image(resize2d(depth_out_t2, (480, 640)) - depth_in, '%s/testimg/2corr_%02d.png'
+                                 % (save_dir, i), normalize=True, range=(-50, 50), mask=mask_raw)
+                save_error_image(depth_out_t2 - depth_gt, '%s/testimg/2diff_%02d.png' % (save_dir, i), normalize=True, range=(-50, 50), mask=mask_small)
+                vutils.save_image(mask_small, '%s/testimg/2_mask_%02d.png' % (save_dir, i), normalize=True, range=(-0.5, 1.5))
+            del image, htped_in, depth_in, depth_gt, depth_out_t2, mask_raw, mask_small
+
+    if evaluate:
+        # true_y = true_y[:, crop[0]:crop[1] + 1, crop[2]:crop[3] + 1]
+        # pred_y = pred_y[:, crop[0]:crop[1] + 1, crop[2]:crop[3] + 1]
+
+        print(len(true_y))
+        for j in range(len(true_y)):
+            errors = compute_errors(true_y[j], pred_y[j], mask_y[j])
+        print(errors)
+
+
+def compute_errors(gt_, pred_, mask):
+    # TODO: implement mask so there's no divide by 0
+    mask_idx = np.nonzero(mask)
+    gt = gt_[mask_idx]
+    pred = pred_[mask_idx]
+
+    thresh = np.maximum((gt / pred), (pred / gt))
+    tavg = thresh.mean()
+    tiavg = (1/thresh).mean()
+    tmed = np.median(thresh)
+
+    a1 = (thresh < 1.25).mean()
+    a2 = (thresh < 1.25 ** 2).mean()
+    a3 = (thresh < 1.25 ** 3).mean()
+
+    abs_rel = np.mean(np.abs(gt - pred) / gt)
+
+    rmse = (gt - pred) ** 2
+    rmse = np.sqrt(rmse.mean())
+
+    log_10 = (np.abs(np.log10(gt) - np.log10(pred))).mean()
+
+    return a1, a2, a3, abs_rel, rmse, log_10, tavg, tiavg, tmed
 
 
 if __name__ == '__main__':
-    test_model('models/190830_mod8')
+    test_model('models/190925_mod12')

@@ -82,7 +82,7 @@ class depthDatasetMemory(Dataset):
         return len(self.nyu_dataset)
 
 class ToTensor(object):
-    def __init__(self,is_test=False):
+    def __init__(self, is_test=False):
         self.is_test = is_test
 
     def __call__(self, sample):
@@ -93,7 +93,7 @@ class ToTensor(object):
         depth = depth.resize((320, 240))
 
         if self.is_test:
-            depth = self.to_tensor(depth).float() / 1000
+            depth = self.to_tensor(depth).float() / 10#00   # still need to examine the exact value..
         else:            
             depth = self.to_tensor(depth).float() * 1000
         
@@ -162,7 +162,7 @@ def getTrainingTestingData(batch_size):
 
 def getTestingDataOnly(batch_size):
     data, nyu2_test = loadZipToMem('nyu_data.zip', 'data/nyu2_test.csv')
-    transformed_testing = depthDatasetMemory(data, nyu2_test, transform=getNoTransform())
+    transformed_testing = depthDatasetMemory(data, nyu2_test, transform=getNoTransform(is_test=True))
 
     return DataLoader(transformed_testing, batch_size, shuffle=False, drop_last=True)
 

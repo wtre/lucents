@@ -68,8 +68,9 @@ def colorize(value, vmin=10, vmax=1000, cmap='plasma'):
 
 
 def save_error_image(tensor, filename, nrow=8, padding=2,
-               normalize=False, range=None, scale_each=False, pad_value=0):
+               normalize=False, range=None, scale_each=False, pad_value=0, mask=None):
     """Export Diverging image grid.
+    Is a fork of vutils.save_image.
     Make sure range equals (-a, a)
     """
     from PIL import Image
@@ -79,6 +80,13 @@ def save_error_image(tensor, filename, nrow=8, padding=2,
     tensor_r = torch.where(tensor > 0, z, tensor)
     tensor_g = torch.where(tensor > 0, tensor.mul_(-1), tensor)
     tensor_b = torch.where(tensor > 0, tensor.mul_(-1), z)
+    if mask is not None:
+        # print('    mask is not none!')
+        m = torch.ones(tensor.size()).cuda().mul_(0-range[0])
+        tensor_r = torch.where(mask >= 1, tensor_r, m)
+        tensor_g = torch.where(mask >= 1, tensor_g, m)
+        tensor_b = torch.where(mask >= 1, tensor_b, m)
+
     tensor_merged = torch.cat((tensor_r, tensor_g, tensor_b), 1)
 
     grid = vutils.make_grid(tensor_merged, nrow=nrow, padding=padding, pad_value=pad_value,
