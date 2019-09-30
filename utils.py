@@ -18,7 +18,14 @@ def thresh_mask(depth_gt, depth_raw, thresh=3):
     dd = depth_raw - depth_gt
     z = torch.zeros(depth_raw.size()).cuda()
     o = torch.ones(depth_raw.size()).cuda()
-    return torch.where(dd > thresh, z, o)
+    return torch.where(dd > thresh, o, z)   # Fixed the reversed part
+
+
+def thresh_mask_REVERSED(depth_gt, depth_raw, thresh=3):
+    dd = depth_raw - depth_gt
+    z = torch.zeros(depth_raw.size()).cuda()
+    o = torch.ones(depth_raw.size()).cuda()
+    return torch.where(dd > thresh, o, z)   # Fixed the reversed part
 
 
 def blend_depth(depth_raw, depth_gt, mask, blend_range=(0 ,1)):

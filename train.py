@@ -16,7 +16,7 @@ import numpy as np
 from model_rgbd import Model_rgbd, resize2d, resize2dmask
 from loss import ssim, grad_x, grad_y, MaskedL1, MaskedL1Grad
 from data import getTrainingTestingData, getTranslucentData
-from utils import AverageMeter, DepthNorm, thresh_mask, colorize, save_error_image, blend_depth
+from utils import AverageMeter, DepthNorm, thresh_mask, thresh_mask_REVERSED, colorize, save_error_image, blend_depth
 
 def main():
     # Arguments
@@ -65,12 +65,13 @@ def main():
         # Hand-craft loss weight of main task
         interval1 = 1
         interval2 = 2
+        weight_t1loss = [1] * (10*interval1) + [0] * interval2
         weight_txloss = [.0317] * interval1 + [.1] * interval1 + \
                         [.316] * interval1 + [1] * interval1 + \
                         [3.16] * interval1 + [10] * interval1 + \
                         [10] * interval1 + [5.62] * interval1 + \
                         [3.16] * interval1 + [1.78] * interval1 + \
-                        [1] * interval2
+                        [0] * interval2
         weight_t2loss = [.001] * interval1 + [.00316] * interval1 + \
                         [.01] * interval1 + [.0316] * interval1 + \
                         [.1] * interval1 + [.316] * interval1 + \
@@ -191,7 +192,7 @@ def main():
                 # (x) Transfer task: /*Fill*/ reconstruct sudo-translucent object
 
                 depth_gt_large = resize2d(depth_gt, (480, 640))
-                object_mask = thresh_mask(depth_gt_large, depth_raw)
+                object_mask = thresh_mask_REVERSED(depth_gt_large, depth_raw)
                 # depth_holed = depth_raw * object_mask
                 depth_holed = blend_depth(depth_raw, depth_gt_large, object_mask)
 
@@ -234,10 +235,10 @@ def main():
                 l_grad_tx = grad_l1_criterion_masked(output_tx, depth_gt_n, mask_post)
                 # l_ssim_tx = torch.clamp((1 - ssim(output_tx, depth_nyu_n, val_range=1000.0 / 10.0)) * 0.5, 0, 1)
 
-                loss_nyu = (0.1 * l_depth_t1) + (1.0 * l_grad_t1) + (1.0 * l_ssim_t1)
-                loss_lucent = (0.1 * l_depth_t2) + (1.0 * l_grad_t2) #+ (0 * l_ssim_t2)
-                loss_hole = (0.1 * l_depth_tx) + (1.0 * l_grad_tx) #+ (0 * l_ssim_tx)
-                loss = loss_nyu + (weight_t2loss[epoch] * loss_lucent) + (weight_txloss[epoch] * loss_hole)
+                loss_nyu = (0.1 * l_depth_t1) + (2.0 * l_grad_t1) + (10.0 * l_ssim_t1)
+                loss_lucent = (0.1 * l_depth_t2) + (2.0 * l_grad_t2) #+ (0 * l_ssim_t2)
+                loss_hole = (0.1 * l_depth_tx) + (2.0 * l_grad_tx) #+ (0 * l_ssim_tx)
+                loss = (weight_t1loss[epoch] * loss_nyu) + (weight_t2loss[epoch] * loss_lucent) + (weight_txloss[epoch] * loss_hole)
 
                 # Log losses
                 losses_nyu.update(loss_nyu.data.item(), image_nyu.size(0))
@@ -268,6 +269,7 @@ def main():
                     'TX {lx.val:.4f} ({lx.avg:.4f}) [{lxd:.4f} | {lxg:.4f}]'
                     .format(epoch, i, N, batch_time=batch_time, loss=losses, l1=losses_nyu, l1d=l_depth_t1, l1g=l_grad_t1, l1s=l_ssim_t1,
                             l2=losses_lucent, l2d=l_depth_t2, l2g=l_grad_t2, lx=losses_hole, lxd=l_depth_tx, lxg=l_grad_tx, eta=eta))
+                    # Note that the numbers displayed are pre-weighted.
 
                     # Log to tensorboard
                     writer.add_scalar('Train/Loss', losses.val, niter)
