@@ -320,4 +320,4 @@ def getTranslucentData(batch_size):
     transformed_testing = LucentDatasetMemory(data_, lucent_test, transform=getNoLucentTransform())
 
     return DataLoader(transformed_training, batch_size, shuffle=True, drop_last=True), \
-           DataLoader(transformed_testing, batch_size*2, shuffle=False, drop_last=True)     # Note that test batch is manually enlarged!
+           DataLoader(transformed_testing, batch_size, shuffle=False, drop_last=True)     # Note that test batch size returned

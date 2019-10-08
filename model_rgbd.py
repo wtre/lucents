@@ -138,11 +138,13 @@ class Model_rgbd(nn.Module):
     def __init__(self):
         super(Model_rgbd, self).__init__()
         self.encoder = Encoder()
-        self.decoder = Decoder()
+        self.decoder1 = Decoder()
+        self.decoder2 = Decoder()
 
     def forward(self, x, y): # x.size(1) is now 4. or maybe not, and just take 2 arguments.
         # https://stackoverflow.com/questions/691267/passing-functions-which-have-multiple-return-values-as-arguments-in-python
         # if resize_mask:
         #     y = resize2d(y, (320, 240))
-        return self.decoder( *self.encoder(x, y) )
+        # https://discuss.pytorch.org/t/how-to-create-model-with-sharing-weight/398
+        return self.decoder1(*self.encoder(x, y)), self.decoder2(*self.encoder(x, y))
 
