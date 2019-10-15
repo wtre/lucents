@@ -13,7 +13,7 @@ from data import getTestingDataOnly, getTranslucentData
 from utils import  DepthNorm, thresh_mask, save_error_image
 
 
-def test_model(save_dir, save_img=False, evaluate=True):
+def test_model(save_dir, save_img=True, evaluate=True):
 
     if not os.path.exists('%s/testimg' % save_dir):
         os.makedirs('%s/testimg' % save_dir)
@@ -21,12 +21,12 @@ def test_model(save_dir, save_img=False, evaluate=True):
     # load saved model
     model = Model_rgbd().cuda()
     # model.load_state_dict(torch.load(os.path.join(save_dir, 'model_overtraining.pth')))
-    model.load_state_dict(torch.load(os.path.join(save_dir, 'epoch-23.pth')))
+    model.load_state_dict(torch.load(os.path.join(save_dir, 'model_yesTX_11ep/epoch-8.pth')))
     model.eval()
     print('model loaded for evaluation.')
 
     # Load data
-    test_loader = getTestingDataOnly(batch_size=2)
+    test_loader = getTestingDataOnly(batch_size=1)
     train_loader_l, test_loader_l = getTranslucentData(batch_size=1)
 
     with torch.cuda.device(0):
@@ -69,7 +69,8 @@ def test_model(save_dir, save_img=False, evaluate=True):
             #     print(" " + str(torch.max(mask_new)) + " " + str(torch.min(mask_new)))
 
             # Predict
-            depth_out_t1 = DepthNorm( model(image_nyu, depth_nyu_masked) )
+            (htped_out_t1, _) = model(image_nyu, depth_nyu_masked)
+            depth_out_t1 = DepthNorm(htped_out_t1)
 
             dn_resized = resize2d(depth_nyu, (240, 320))
 
@@ -80,7 +81,7 @@ def test_model(save_dir, save_img=False, evaluate=True):
                     vutils.save_image(depth_nyu_masked, '%s/testimg/1in_%02d.png' % (save_dir, i), normalize=True, range=(0, 1000))
                 save_error_image(depth_out_t1 - dn_resized, '%s/testimg/1diff_%02d.png' % (save_dir, i), normalize=True, range=(-300, 300))
 
-            del image_nyu, depth_nyu, depth_out_t1, dn_resized
+            del image_nyu, depth_nyu, htped_out_t1, depth_out_t1, dn_resized
 
             # (2) Main task : test and save
             image = torch.autograd.Variable(sample_batched_l['image'].cuda())
@@ -89,7 +90,8 @@ def test_model(save_dir, save_img=False, evaluate=True):
 
             depth_gt = torch.autograd.Variable(sample_batched_l['depth_truth'].cuda(non_blocking=True))
 
-            depth_out_t2 = DepthNorm( model(image, htped_in) )
+            (_, htped_out_t2) = model(image, htped_in)
+            depth_out_t2 = DepthNorm(htped_out_t2)
 
             mask_small = resize2dmask(mask_raw, (240, 320))
             obj_mask = thresh_mask(depth_gt, resize2d(depth_in, (240, 320)))
@@ -207,4 +209,4 @@ def compute_errors(gt_, pred_, mask):
 
 
 if __name__ == '__main__':
-    test_model('models/190911_mod11')
+    test_model('models/191004_mod13')

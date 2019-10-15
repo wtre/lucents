@@ -26,6 +26,15 @@ def main():
     parser.add_argument('--bs', default=4, type=int, help='batch size')
     args = parser.parse_args()
     SAVE_DIR = 'models/191004_mod13'
+    ifcrop = True
+
+    if ifcrop:
+        HEIGHT = 256
+        HEIGHT_WITH_RATIO = 240
+        WIDTH = 320
+    else:
+        HEIGHT = 480
+        WIDTH = 640
 
     with torch.cuda.device(0):
 
@@ -50,8 +59,8 @@ def main():
         prefix = 'densenet_' + str(batch_size)
 
         # Load data
-        train_loader, test_loader = getTrainingTestingData(batch_size=1)
-        train_loader_l, test_loader_l = getTranslucentData(batch_size=1)
+        train_loader, test_loader = getTrainingTestingData(batch_size=1, crop_halfsize=ifcrop)
+        train_loader_l, test_loader_l = getTranslucentData(batch_size=1, crop_halfsize=ifcrop)
         # Test batch is manually enlarged! See getTranslucentData's return.
 
         # Logging
@@ -122,8 +131,8 @@ def main():
                 depth_raw = torch.autograd.Variable(sample_batched_l['depth_raw'].cuda())
                 depth_gt = torch.autograd.Variable(sample_batched_l['depth_truth'].cuda(non_blocking=True))
 
-                # if i == 10:
-                #     print('========')
+                # if i < 10:
+                #     print('========-=-=')
                 #     print(image_nyu.shape)
                 #     print(depth_nyu.shape)
                 #     print(image_raw.shape)
@@ -147,7 +156,14 @@ def main():
                 # Apply random mask to it
                 rand_index = [random.randint(0, N2-1) for k in range(N1)]
                 mask_new = mask_raw[rand_index, :, :, :]
-                depth_nyu_masked = resize2d(depth_nyu_n, (480, 640)) * mask_new
+                depth_nyu_masked = resize2d(depth_nyu_n, (HEIGHT, WIDTH)) * mask_new
+
+                # if i < 1:
+                #     print('========')
+                #     print(image_nyu.shape)
+                #     print(" " + str(torch.max(image_raw)) + " " + str(torch.min(image_raw)))
+                #     print(depth_nyu_masked.shape)
+                #     print(" " + str(torch.max(depth_nyu_masked)) + " " + str(torch.min(depth_nyu_masked)))
 
                 # Predict
                 (output_t1, _) = model(image_nyu, depth_nyu_masked)
@@ -176,11 +192,52 @@ def main():
                 torch.cuda.empty_cache()
 
                 ###########################
-                # (2) Main task: Undistort translucent object
+                # (x) Transfer task: /*Fill*/ reconstruct sudo-translucent object
 
                 # Normalize depth
                 depth_gt_n = DepthNorm(depth_gt)
                 depth_raw_n = DepthNorm(depth_raw)
+
+                depth_gt_large = resize2d(depth_gt, (HEIGHT, WIDTH))
+                object_mask = thresh_mask_REVERSED(depth_gt_large, depth_raw)
+                # depth_holed = depth_raw * object_mask
+                depth_holed = blend_depth(depth_raw, depth_gt_large, object_mask)
+
+                # print('========')
+                # print(object_mask.shape)
+                # print(" " + str(torch.max(object_mask)) + " " + str(torch.min(object_mask)))
+                # print(depth_holed.shape)
+                # print(" " + str(torch.max(depth_holed)) + " " + str(torch.min(depth_holed)))
+                # print(image_raw.shape)
+                # print(" " + str(torch.max(image_raw)) + " " + str(torch.min(image_raw)))
+
+                (output_tx, _) = model(image_raw, DepthNorm(depth_holed))
+                output_tx_n = DepthNorm(output_tx)
+
+                # Calculate Loss and backprop
+                mask_post = resize2dmask(mask_raw, (int(HEIGHT/2), int(WIDTH/2)))
+                l_depth_tx = l1_criterion_masked(output_tx, depth_gt_n, mask_post)
+                l_grad_tx = grad_l1_criterion_masked(output_tx, depth_gt_n, mask_post)
+                # l_ssim_tx = torch.clamp((1 - ssim(output_tx, depth_nyu_n, val_range=1000.0 / 10.0)) * 0.5, 0, 1)
+                loss_hole = (0.1 * l_depth_tx) + (1.0 * l_grad_tx) #+ (0 * l_ssim_tx) ####
+
+                optimizer.zero_grad()
+                loss_hole.backward()
+                optimizer.step()
+
+                if i % 150 == 0 or i < 2:
+                    vutils.save_image(DepthNorm(depth_holed), '%s/img/C_in_%06d.png' % (SAVE_DIR, epoch * 10000 + i),
+                                      normalize=True, range=(0, 500))
+                    vutils.save_image(object_mask, '%s/img/C_mask_%06d.png' % (SAVE_DIR, epoch * 10000 + i),
+                                      normalize=True, range=(0, 1.5))
+                    vutils.save_image(output_tx_n, '%s/img/C_out_%06d.png' % (SAVE_DIR, epoch * 10000 + i),
+                                      normalize=True, range=(0, 500))
+                    save_error_image(output_tx_n - depth_gt, '%s/img/C_zdiff_%06d.png' % (SAVE_DIR, epoch * 10000 + i),
+                                     normalize=True, range=(-500, 500))
+                torch.cuda.empty_cache()
+
+                ###########################
+                # (2) Main task: Undistort translucent object
 
                 # Predict
                 (_, output_t2) = model(image_raw, depth_raw_n)
@@ -188,7 +245,6 @@ def main():
                 # print("  (2): " + str(output.shape))
 
                 # Calculate Loss and backprop
-                mask_post = resize2dmask(mask_raw, (240, 320))
                 l_depth_t2 = l1_criterion_masked(output_t2, depth_gt_n, mask_post)
                 l_grad_t2 = grad_l1_criterion_masked(output_t2, depth_gt_n, mask_post)
                 # l_ssim_t2 = torch.clamp((1 - ssim(output_t2, depth_gt_n, val_range=1000.0/10.0)) * 0.5, 0, 1)
@@ -222,52 +278,13 @@ def main():
                     print("GT depth : " + str(np.min(og)) + "~" + str(np.max(og)) +
                           " // NYU GT depth from 0.0~" + str(np.max(nm)) + " to " + str(np.min(ng)) + "~" + str(np.max(ng)) + " (" + str(np.mean(ng)) + ")")
 
-                ###########################
-                # # (x) Transfer task: /*Fill*/ reconstruct sudo-translucent object
-                #
-                # depth_gt_large = resize2d(depth_gt, (480, 640))
-                # object_mask = thresh_mask_REVERSED(depth_gt_large, depth_raw)
-                # # depth_holed = depth_raw * object_mask
-                # depth_holed = blend_depth(depth_raw, depth_gt_large, object_mask)
-                #
-                # # print('========')
-                # # print(object_mask.shape)
-                # # print(" " + str(torch.max(object_mask)) + " " + str(torch.min(object_mask)))
-                # # print(depth_holed.shape)
-                # # print(" " + str(torch.max(depth_holed)) + " " + str(torch.min(depth_holed)))
-                # # print(image_raw.shape)
-                # # print(" " + str(torch.max(image_raw)) + " " + str(torch.min(image_raw)))
-                #
-                # output_tx = model(image_raw, DepthNorm(depth_holed))
-                # output_tx_n = DepthNorm(output_tx)
-                #
-                # if i % 150 == 0 or i < 2:
-                #     vutils.save_image(DepthNorm(depth_holed), '%s/img/C_in_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(0, 500))
-                #     vutils.save_image(object_mask, '%s/img/C_mask_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(0, 1.5))
-                #     vutils.save_image(output_tx_n, '%s/img/C_out_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(0, 500))
-                #     save_error_image(output_tx_n-depth_gt, '%s/img/C_zdiff_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(-500, 500))
-
 
                 ###########################
                 # (3) Update the network parameters
-
-
-
                 if i % 150 == 0 or i < 1:
                     vutils.save_image(mask_post, '%s/img/_mask_%06d.png' % (SAVE_DIR, epoch * 10000 + i), normalize=True)
 
-                # Compute the loss
-
-
-
-
-                # l_depth_tx = l1_criterion_masked(output_tx, depth_gt_n, mask_post)
-                # l_grad_tx = grad_l1_criterion_masked(output_tx, depth_gt_n, mask_post)
-                # # l_ssim_tx = torch.clamp((1 - ssim(output_tx, depth_nyu_n, val_range=1000.0 / 10.0)) * 0.5, 0, 1)
-
-                # loss_hole = (0.1 * l_depth_tx) + (1.0 * l_grad_tx) #+ (0 * l_ssim_tx) ####
-
-                loss = (weight_t1loss[epoch] * loss_nyu) + (weight_t2loss[epoch] * loss_lucent) # + (weight_txloss[epoch] * loss_hole) ####
+                loss = (weight_t1loss[epoch] * loss_nyu) + (weight_t2loss[epoch] * loss_lucent) + (weight_txloss[epoch] * loss_hole) ####
 
                 # Log losses
                 losses_nyu.update(loss_nyu.data.item(), image_nyu.size(0))
@@ -290,17 +307,16 @@ def main():
                     'Loss {loss.val:.4f} ({loss.avg:.4f}) ||\t'
                     'NYU {l1.val:.4f} ({l1.avg:.4f}) [{l1d:.4f} | {l1g:.4f} | {l1s:.4f}]\t'
                     'LUC {l2.val:.4f} ({l2.avg:.4f}) [{l2d:.4f} | {l2g:.4f}]\t'
-                    # 'TX {lx.val:.4f} ({lx.avg:.4f}) [{lxd:.4f} | {lxg:.4f}]'
+                    'TX {lx.val:.4f} ({lx.avg:.4f}) [{lxd:.4f} | {lxg:.4f}]'
                     .format(epoch, i, N, batch_time=batch_time, loss=losses, l1=losses_nyu, l1d=l_depth_t1, l1g=l_grad_t1, l1s=l_ssim_t1,
-                            l2=losses_lucent, l2d=l_depth_t2, l2g=l_grad_t2, lx=losses_hole, #lxd=l_depth_tx, lxg=l_grad_tx, ####
-                            eta=eta))
+                            l2=losses_lucent, l2d=l_depth_t2, l2g=l_grad_t2, lx=losses_hole, lxd=l_depth_tx, lxg=l_grad_tx, eta=eta))
                     # Note that the numbers displayed are pre-weighted.
 
                     # Log to tensorboard
                     writer.add_scalar('Train/Loss', losses.val, niter)
 
                 if i % 750 == 0:
-                    LogProgress(model, writer, test_loader, test_loader_l, niter, epoch*10000+i, SAVE_DIR)
+                    LogProgress(model, writer, test_loader, test_loader_l, niter, epoch*10000+i, SAVE_DIR, HEIGHT, WIDTH)
                     path = os.path.join(SAVE_DIR, 'model_overtraining.pth')
                     torch.save(model.cpu().state_dict(), path) # saving model
                     model.cuda() # moving model to GPU for further training
@@ -309,7 +325,7 @@ def main():
                 torch.cuda.empty_cache()
 
             # Record epoch's intermediate results
-            LogProgress(model, writer, test_loader, test_loader_l, niter, epoch*10000+i, SAVE_DIR)
+            LogProgress(model, writer, test_loader, test_loader_l, niter, epoch*10000+i, SAVE_DIR, HEIGHT, WIDTH)
             writer.add_scalar('Train/Loss.avg', losses.avg, epoch)
             # all the saves come from https://discuss.pytorch.org/t/how-to-save-a-model-from-a-previous-epoch/20252
 
@@ -324,7 +340,7 @@ def main():
 # BN might be an issue: https://www.kaggle.com/c/quickdraw-doodle-recognition/discussion/71366
 # TODO: Cover memory explosion! | gradient clipping? | robust loss?
 
-def LogProgress(model, writer, test_loader, test_loader_l, epoch, n, save_dir):
+def LogProgress(model, writer, test_loader, test_loader_l, epoch, n, save_dir, HEIGHT, WIDTH):
     with torch.cuda.device(0):
         torch.cuda.empty_cache()
         model.eval()
@@ -355,13 +371,13 @@ def LogProgress(model, writer, test_loader, test_loader_l, epoch, n, save_dir):
             # Apply random mask to it
             ordered_index = list(range(depth_nyu.shape[0])) # NOTE: NYU test batch size shouldn't be bigger than lucent's.
             mask_new = mask_raw[ordered_index, :, :, :]
-            depth_nyu_masked = resize2d(depth_nyu_n, (480, 640)) * mask_new
+            depth_nyu_masked = resize2d(depth_nyu_n, (HEIGHT, WIDTH)) * mask_new
 
             # Predict
             (depth_out_t1n, _) = model(image_nyu, depth_nyu_masked)
             depth_out_t1 = DepthNorm(depth_out_t1n)
 
-            dn_resized = resize2d(depth_nyu, (240, 320))
+            dn_resized = resize2d(depth_nyu, (int(HEIGHT/2), int(WIDTH/2)))
 
             # Save image
 
@@ -399,8 +415,8 @@ def LogProgress(model, writer, test_loader, test_loader_l, epoch, n, save_dir):
 
             # dl = depth_in.cpu().numpy()
             # hl = htped_in.cpu().numpy()
-            # dr = resize2d(depth_in, (240, 320)).cpu().numpy()
-            # hr = resize2d(htped_in, (240, 320)).cpu().numpy()
+            # dr = resize2d(depth_in, (int(HEIGHT/2), int(WIDTH/2))).cpu().numpy()
+            # hr = resize2d(htped_in, (int(HEIGHT/2), int(WIDTH/2))).cpu().numpy()
             # do = depth_out_t2.cpu().detach().numpy()
             # gr = depth_gt.cpu().numpy()
             # print('/=/=/=/=/=/')
@@ -418,8 +434,8 @@ def LogProgress(model, writer, test_loader, test_loader_l, epoch, n, save_dir):
                 vutils.save_image(depth_gt, '%s/img/2truth_%06d_%02d.png' % (save_dir, n, i), normalize=True, range=(0, 500))
             vutils.save_image(depth_out_t2, '%s/img/2out_%06d_%02d.png' % (save_dir, n, i), normalize=True, range=(0, 500))
 
-            mask_small = resize2d(mask_raw, (240, 320))
-            save_error_image(resize2d(depth_out_t2, (480, 640)) - depth_in, '%s/img/2corr_%06d_%02d.png'
+            mask_small = resize2d(mask_raw, (int(HEIGHT/2), int(WIDTH/2)))
+            save_error_image(resize2d(depth_out_t2, (HEIGHT, WIDTH)) - depth_in, '%s/img/2corr_%06d_%02d.png'
                              % (save_dir, n, i), normalize=True, range=(-50, 50), mask=mask_raw)
             save_error_image(depth_out_t2 - depth_gt, '%s/img/2diff_%06d_%02d.png' % (save_dir, n, i), normalize=True, range=(-50, 50), mask=mask_small)
             del image, htped_in, depth_in, depth_gt, depth_out_t2n, depth_out_t2, mask_raw, mask_small

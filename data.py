@@ -82,15 +82,22 @@ class depthDatasetMemory(Dataset):
         return len(self.nyu_dataset)
 
 class ToTensor(object):
-    def __init__(self, is_test=False):
+    def __init__(self, is_test=False, crop_halfsize=False):
         self.is_test = is_test
+        self.crop_halfsize = crop_halfsize
 
     def __call__(self, sample):
         image, depth = sample['image'], sample['depth']
-        
-        image = self.to_tensor(image)
 
         depth = depth.resize((320, 240))
+
+        if self.crop_halfsize:
+            hd = np.random.randint(112)
+            wd = np.random.randint(160)
+            image = image.crop((wd*2, hd*2, wd*2+320, hd*2+256))
+            depth = depth.crop((wd, hd, wd + 160, hd + 128))
+
+        image = self.to_tensor(image)
 
         if self.is_test:
             depth = self.to_tensor(depth).float() / 10#00   # still need to examine the exact value..
@@ -135,23 +142,23 @@ class ToTensor(object):
         else:
             return img
 
-def getNoTransform(is_test=False):
+def getNoTransform(is_test=False, crop_halfsize=False):
     return transforms.Compose([
-        ToTensor(is_test=is_test)
+        ToTensor(is_test=is_test, crop_halfsize=crop_halfsize)
     ])
 
-def getDefaultTrainTransform():
+def getDefaultTrainTransform(crop_halfsize=False):
     return transforms.Compose([
         RandomHorizontalFlip(),
         RandomChannelSwap(0.5),
-        ToTensor()
+        ToTensor(crop_halfsize=crop_halfsize)
     ])
 
-def getTrainingTestingData(batch_size):
+def getTrainingTestingData(batch_size, crop_halfsize=False):
     data, nyu2_train = loadZipToMem('nyu_data.zip', 'data/nyu2_train.csv')
 
-    transformed_training = depthDatasetMemory(data, nyu2_train, transform=getDefaultTrainTransform())
-    transformed_testing = depthDatasetMemory(data, nyu2_train, transform=getNoTransform())
+    transformed_training = depthDatasetMemory(data, nyu2_train, transform=getDefaultTrainTransform(crop_halfsize=crop_halfsize))
+    transformed_testing = depthDatasetMemory(data, nyu2_train, transform=getNoTransform(crop_halfsize=crop_halfsize))
 
     return DataLoader(transformed_training, batch_size, shuffle=True, drop_last=True), \
            DataLoader(transformed_testing, batch_size, shuffle=False, drop_last=True)
@@ -205,8 +212,9 @@ class RandomChannelSwap_l(object):
 
 
 class ToTensor_l(object):
-    def __init__(self, is_test=False):
+    def __init__(self, is_test=False, crop_halfsize=False):
         self.is_test = is_test
+        self.crop_halfsize = crop_halfsize
 
     def __call__(self, sample):
         image, depth_raw, mask, depth_truth = sample['image'], sample['depth_raw'], sample['mask'], sample['depth_truth']
@@ -214,12 +222,20 @@ class ToTensor_l(object):
         image = image.crop((0, 14, 512, 398)).resize((640, 480))
         mask = mask.crop((0, 14, 512, 398)).resize((640, 480)) # set as 'PIL.IMage.NEARST' by default.
 
+        depth_raw = depth_raw.crop((0, 14, 512, 398)).resize((640, 480))
+        depth_truth = depth_truth.crop((0, 14, 512, 398)).resize((320, 240))
+
+        if self.crop_halfsize:
+            hd = np.random.randint(112)
+            wd = np.random.randint(160)
+            image = image.crop((wd*2, hd*2, wd*2+320, hd*2+256))
+            mask = mask.crop((wd * 2, hd * 2, wd * 2 + 320, hd * 2 + 256))
+            depth_raw = depth_raw.crop((wd * 2, hd * 2, wd * 2 + 320, hd * 2 + 256))
+            depth_truth = depth_truth.crop((wd, hd, wd + 160, hd + 128))
+
         image = self.to_tensor(image)
         mask, _, _ = mask.split()   # this needs to be dealt with data gathering script though.
         mask = self.to_tensor(mask)
-
-        depth_raw = depth_raw.crop((0, 14, 512, 398)).resize((640, 480))
-        depth_truth = depth_truth.crop((0, 14, 512, 398)).resize((320, 240))
 
         # if self.is_test:
         #     depth_raw = self.to_tensor(depth_raw).float() / 1000
@@ -272,16 +288,16 @@ class ToTensor_l(object):
             return img
 
 
-def getNoLucentTransform(is_test=False):
+def getNoLucentTransform(is_test=False, crop_halfsize=False):
     return transforms.Compose([
-        ToTensor_l(is_test=is_test)
+        ToTensor_l(is_test=is_test, crop_halfsize=crop_halfsize)
     ])
 
-def getLucentTrainTransform():
+def getLucentTrainTransform(crop_halfsize=False):
     return transforms.Compose([
         RandomHorizontalFlip_l(),
         RandomChannelSwap_l(0.5),
-        ToTensor_l()
+        ToTensor_l(crop_halfsize=crop_halfsize)
     ])
 
 
@@ -312,12 +328,13 @@ class LucentDatasetMemory(Dataset):
     def __len__(self):
         return len(self.lucent_dataset)
 
-def getTranslucentData(batch_size):
+
+def getTranslucentData(batch_size, crop_halfsize=False):
     data, lucent_train = loadZipToMem('lucents_v1_moretest.zip', 'data/train.csv')
     data_, lucent_test = loadZipToMem('lucents_v1_moretest.zip', 'data/test.csv')
 
-    transformed_training = LucentDatasetMemory(data, lucent_train, transform=getLucentTrainTransform())
-    transformed_testing = LucentDatasetMemory(data_, lucent_test, transform=getNoLucentTransform())
+    transformed_training = LucentDatasetMemory(data, lucent_train, transform=getLucentTrainTransform(crop_halfsize=crop_halfsize))
+    transformed_testing = LucentDatasetMemory(data_, lucent_test, transform=getNoLucentTransform(is_test=False, crop_halfsize=crop_halfsize))
 
     return DataLoader(transformed_training, batch_size, shuffle=True, drop_last=True), \
            DataLoader(transformed_testing, batch_size, shuffle=False, drop_last=True)     # Note that test batch size returned
