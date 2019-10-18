@@ -21,7 +21,7 @@ def test_model(save_dir, save_img=True, evaluate=True):
     # load saved model
     model = Model_rgbd().cuda()
     # model.load_state_dict(torch.load(os.path.join(save_dir, 'model_overtraining.pth')))
-    model.load_state_dict(torch.load(os.path.join(save_dir, 'model_yesTX_11ep/epoch-8.pth')))
+    model.load_state_dict(torch.load(os.path.join(save_dir, 'temp/model_overtraining.pth')))
     model.eval()
     print('model loaded for evaluation.')
 
