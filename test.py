@@ -21,7 +21,7 @@ def test_model(save_dir, save_img=True, evaluate=True):
     # load saved model
     model = Model_rgbd().cuda()
     # model.load_state_dict(torch.load(os.path.join(save_dir, 'model_overtraining.pth')))
-    model.load_state_dict(torch.load(os.path.join(save_dir, 'temp/model_overtraining.pth')))
+    model.load_state_dict(torch.load(os.path.join(save_dir, 'model_overtraining.pth')))
     model.eval()
     print('model loaded for evaluation.')
 
@@ -209,4 +209,4 @@ def compute_errors(gt_, pred_, mask):
 
 
 if __name__ == '__main__':
-    test_model('models/191004_mod13')
+    test_model('models/191018_mod14')
