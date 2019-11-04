@@ -16,7 +16,7 @@ import numpy as np
 from model_rgbd import Model_rgbd, resize2d, resize2dmask
 from loss import ssim, grad_x, grad_y, MaskedL1, MaskedL1Grad
 from data import getTrainingTestingData, getTranslucentData
-from utils import AverageMeter, DepthNorm, thresh_mask, thresh_mask_REVERSED, colorize, save_error_image, blend_depth
+from utils import AverageMeter, DepthNorm, thresh_mask_REVERSED, colorize, save_error_image, blend_depth, freeze_weight
 
 def main():
     # Arguments
@@ -175,17 +175,13 @@ def main():
                 l_grad_t1 = l1_criterion(grad_x(output_t1), grad_x(depth_nyu_n)) + l1_criterion(grad_y(output_t1), grad_y(depth_nyu_n))
                 l_ssim_t1 = torch.clamp((1 - ssim(output_t1, depth_nyu_n, val_range=1000.0 / 10.0)) * 0.5, 0, 1)
                 loss_nyu = (0.1 * l_depth_t1) + (1.0 * l_grad_t1) + (1.0 * l_ssim_t1)
-                # loss_nyu_weighted = weight_t1loss[epoch] * loss_nyu
+                loss_nyu_weighted = weight_t1loss[epoch] * loss_nyu
 
                 # https://discuss.pytorch.org/t/freeze-the-learnable-parameters-of-resnet-and-attach-it-to-a-new-network/949
-                # for param in model.decoder1.parameters():
-                #     param.requires_grad = True
-                # for param in model.decoder2.parameters():
-                #     param.requires_grad = False
-
-                # optimizer.zero_grad()  # moved to its new position
-                # loss_nyu_weighted.backward()
-                # optimizer.step()
+                freeze_weight(model, e_stay=False, e=False, d1_stay=False, d1=True)
+                optimizer.zero_grad()  # moved to its new position
+                loss_nyu_weighted.backward(retain_graph=True)
+                optimizer.step()
 
                 if i % 150 == 0 or i < 2:
                     vutils.save_image(DepthNorm(depth_nyu_masked), '%s/img/A_masked_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True)
@@ -224,16 +220,17 @@ def main():
                 l_grad_tx = grad_l1_criterion_masked(output_tx, depth_gt_n, mask_post)
                 # l_ssim_tx = torch.clamp((1 - ssim(output_tx, depth_nyu_n, val_range=1000.0 / 10.0)) * 0.5, 0, 1)
                 loss_hole = (0.1 * l_depth_tx) + (1.0 * l_grad_tx) #+ (0 * l_ssim_tx) ####
-                # loss_hole_weighted = weight_txloss[epoch] * loss_hole
+                loss_hole_weighted = weight_txloss[epoch] * loss_hole
 
                 # for param in model.decoder1.parameters():
                 #     param.requires_grad = False
                 # for param in model.decoder2.parameters():
                 #     param.requires_grad = True
 
-                # optimizer.zero_grad()
-                # loss_hole_weighted.backward()
-                # optimizer.step()
+                freeze_weight(model, d1_stay=False, d1=False, d2_stay=False, d2=True)
+                optimizer.zero_grad()
+                loss_hole_weighted.backward(retain_graph=True)  # https://pytorch.org/docs/stable/autograd.html
+                optimizer.step()
 
                 if i % 150 == 0 or i < 2:
                     vutils.save_image(DepthNorm(depth_holed), '%s/img/C_in_%06d.png' % (SAVE_DIR, epoch * 10000 + i),
@@ -259,11 +256,11 @@ def main():
                 l_grad_t2 = grad_l1_criterion_masked(output_t2, depth_gt_n, mask_post)
                 # l_ssim_t2 = torch.clamp((1 - ssim(output_t2, depth_gt_n, val_range=1000.0/10.0)) * 0.5, 0, 1)
                 loss_lucent = (0.1 * l_depth_t2) + (1.0 * l_grad_t2) # + (0 * l_ssim_t2)
-                # loss_lucent_weighted = weight_t2loss[epoch] * loss_lucent
+                loss_lucent_weighted = weight_t2loss[epoch] * loss_lucent
 
-                # optimizer.zero_grad()  # moved to its new position
-                # loss_lucent_weighted.backward()
-                # optimizer.step()
+                optimizer.zero_grad()  # moved to its new position
+                loss_lucent_weighted.backward(retain_graph=True)
+                optimizer.step()
 
                 if i % 150 == 0 or i < 2:
                     vutils.save_image(depth_raw, '%s/img/B_ln_%06d.png' % (SAVE_DIR, epoch*10000+i), normalize=True, range=(0, 500))
@@ -290,6 +287,7 @@ def main():
                     vutils.save_image(mask_post, '%s/img/_mask_%06d.png' % (SAVE_DIR, epoch * 10000 + i), normalize=True)
 
                 loss = (weight_t1loss[epoch] * loss_nyu) + (weight_t2loss[epoch] * loss_lucent) + (weight_txloss[epoch] * loss_hole) ####
+                freeze_weight(model, e_stay=False, e=True, d2_stay=False, d2=False)
                 optimizer.zero_grad()  # moved to its new position
                 loss.backward()
                 optimizer.step()

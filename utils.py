@@ -36,6 +36,18 @@ def blend_depth(depth_raw, depth_gt, mask, blend_range=(0 ,1)):
     return depth_blended * mask
 
 
+def freeze_weight(model, e_stay=True, e=True, d1_stay=True, d1=True, d2_stay=True, d2=True):
+    if not e_stay:
+        for param in model.decoder1.parameters():
+            param.requires_grad = e
+    if not d1_stay:
+        for param in model.decoder1.parameters():
+            param.requires_grad = d1
+    if not d2_stay:
+        for param in model.decoder2.parameters():
+            param.requires_grad = d2
+
+
 class AverageMeter(object):
     def __init__(self):
         self.reset()
