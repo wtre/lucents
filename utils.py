@@ -28,12 +28,18 @@ def thresh_mask_REVERSED(depth_gt, depth_raw, thresh=3):
     return torch.where(dd > thresh, z, o)
 
 
-def blend_depth(depth_raw, depth_gt, mask, blend_range=(0 ,1)):
+def blend_depth(depth_raw, depth_gt, mask, blend_range=(0 ,1), with_bg=True, overlap_holes=True):
     y_raw = torch.empty(depth_raw.shape[0]).uniform_(*blend_range).cuda()
     y = y_raw.reshape(-1, 1, 1, 1)
     depth_blended = y*depth_raw + (1-y)*depth_gt
 
-    return depth_blended * mask
+    if overlap_holes:
+        z = torch.zeros(depth_raw.size()).cuda()
+        depth_blended = torch.where(depth_raw*depth_gt != 0, depth_blended, z)
+    if with_bg:
+        depth_blended = depth_blended + depth_gt * (1-mask)
+
+    return depth_blended
 
 
 def freeze_weight(model, e_stay=True, e=True, d1_stay=True, d1=True, d2_stay=True, d2=True):
