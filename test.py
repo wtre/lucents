@@ -13,14 +13,14 @@ from data import getTestingDataOnly, getTranslucentData
 from utils import  DepthNorm, thresh_mask, save_error_image
 
 
-def test_model(save_dir, save_img=True, evaluate=True):
+def test_model(save_dir, save_img=False, evaluate=True):
 
     if not os.path.exists('%s/testimg' % save_dir):
         os.makedirs('%s/testimg' % save_dir)
 
     # load saved model
     model = Model_rgbd().cuda()
-    model.load_state_dict(torch.load(os.path.join(save_dir, 'model_overtraining.pth')))
+    model.load_state_dict(torch.load(os.path.join(save_dir, 'model_1up_TXrefixed/epoch-5.pth')))
     # model.load_state_dict(torch.load(os.path.join(save_dir, 'epoch-19.pth')))
     model.eval()
     print('model loaded for evaluation.')

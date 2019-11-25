@@ -287,17 +287,17 @@ def main():
                     vutils.save_image(mask_post, '%s/img/_mask_%06d.png' % (SAVE_DIR, epoch * 10000 + i), normalize=True)
 
                 loss = (weight_t1loss[epoch] * loss_nyu) + (weight_t2loss[epoch] * loss_lucent) + (weight_txloss[epoch] * loss_hole) ####
-                freeze_weight(model, e_stay=False, e=True, d2_stay=False, d2=False)
-                optimizer.zero_grad()  # moved to its new position
+                # freeze_weight(model, e_stay=False, e=True, d2_stay=False, d2=False)
+                optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
                 # loss = loss_nyu + loss_lucent + loss_hole
 
                 # Log losses
-                losses_nyu.update(loss_nyu.data.item(), image_nyu.size(0))
-                losses_lucent.update(loss_lucent.data.item(), image_raw.size(0))
-                losses_hole.update(loss_hole.data.item(), image_raw.size(0))
-                losses.update(loss.data.item(), image_nyu.size(0) + image_raw.size(0))
+                losses_nyu.update(loss_nyu.detach().item(), image_nyu.size(0))
+                losses_lucent.update(loss_lucent.detach().item(), image_raw.size(0))
+                losses_hole.update(loss_hole.detach().item(), image_raw.size(0))
+                losses.update(loss.detach().item(), image_nyu.size(0) + image_raw.size(0))
 
                 # Measure elapsed time
                 batch_time.update(time.time() - end)
