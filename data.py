@@ -313,7 +313,7 @@ class LucentDatasetMemory(Dataset):
         return len(self.lucent_dataset)
 
 def getTranslucentData(batch_size):
-    data, lucent_train = loadZipToMem('lucents_v1_moretest.zip', 'data/train.csv')
+    data, lucent_train = loadZipToMem('lucents_v1_filled.zip', 'data/train.csv')
     data_, lucent_test = loadZipToMem('lucents_v1_moretest.zip', 'data/test.csv')
 
     transformed_training = LucentDatasetMemory(data, lucent_train, transform=getLucentTrainTransform())

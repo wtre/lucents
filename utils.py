@@ -28,12 +28,27 @@ def thresh_mask_REVERSED(depth_gt, depth_raw, thresh=3):
     return torch.where(dd > thresh, o, z)   # Fixed the reversed part
 
 
-def blend_depth(depth_raw, depth_gt, mask, blend_range=(0 ,1)):
+def blend_depth_old(depth_raw, depth_gt, mask, blend_range=(0 ,1)):
     y_raw = torch.empty(depth_raw.shape[0]).uniform_(*blend_range).cuda()
     y = y_raw.reshape(-1, 1, 1, 1)
     depth_blended = y*depth_raw + (1-y)*depth_gt
 
     return depth_blended * mask
+
+
+def blend_depth(depth_raw, depth_gt, mask, blend_range=(0 ,1), with_bg=True, overlap_holes=True):
+    y_raw = torch.empty(depth_raw.shape[0]).uniform_(*blend_range).cuda()
+    y = y_raw.reshape(-1, 1, 1, 1)
+    depth_blended = y*depth_raw + (1-y)*depth_gt
+
+    if overlap_holes:
+        z = torch.zeros(depth_raw.size()).cuda()
+        depth_blended = torch.where(depth_raw*depth_gt != 0, depth_blended, z)
+    if with_bg:
+        depth_blended = depth_blended + depth_gt * (1-mask)
+
+    return depth_blended
+
 
 
 class AverageMeter(object):

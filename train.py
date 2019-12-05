@@ -16,7 +16,7 @@ import numpy as np
 from model_rgbd import Model_rgbd, resize2d, resize2dmask
 from loss import ssim, grad_x, grad_y, MaskedL1, MaskedL1Grad
 from data import getTrainingTestingData, getTranslucentData
-from utils import AverageMeter, DepthNorm, thresh_mask, thresh_mask_REVERSED, colorize, save_error_image, blend_depth
+from utils import AverageMeter, DepthNorm, thresh_mask, colorize, save_error_image, blend_depth
 
 def main():
     # Arguments
@@ -25,7 +25,7 @@ def main():
     parser.add_argument('--lr', '--learning-rate', default=0.0001, type=float, help='initial learning rate')
     parser.add_argument('--bs', default=4, type=int, help='batch size')
     args = parser.parse_args()
-    SAVE_DIR = 'models/190925_mod12'
+    SAVE_DIR = 'models/191125_mod16'
 
     with torch.cuda.device(0):
 
@@ -192,7 +192,7 @@ def main():
                 # (x) Transfer task: /*Fill*/ reconstruct sudo-translucent object
 
                 depth_gt_large = resize2d(depth_gt, (480, 640))
-                object_mask = thresh_mask_REVERSED(depth_gt_large, depth_raw)
+                object_mask = thresh_mask(depth_gt_large, depth_raw)
                 # depth_holed = depth_raw * object_mask
                 depth_holed = blend_depth(depth_raw, depth_gt_large, object_mask)
 
@@ -229,15 +229,15 @@ def main():
 
                 l_depth_t2 = l1_criterion_masked(output_t2, depth_gt_n, mask_post)
                 l_grad_t2 = grad_l1_criterion_masked(output_t2, depth_gt_n, mask_post)
-                # l_ssim_t2 = torch.clamp((1 - ssim(output_t2, depth_gt_n, val_range=1000.0/10.0)) * 0.5, 0, 1)
+                l_ssim_t2 = torch.clamp((1 - ssim(output_t2, depth_gt_n, val_range=1000.0/10.0)) * 0.5, 0, 1)
 
                 l_depth_tx = l1_criterion_masked(output_tx, depth_gt_n, mask_post)
                 l_grad_tx = grad_l1_criterion_masked(output_tx, depth_gt_n, mask_post)
-                # l_ssim_tx = torch.clamp((1 - ssim(output_tx, depth_nyu_n, val_range=1000.0 / 10.0)) * 0.5, 0, 1)
+                l_ssim_tx = torch.clamp((1 - ssim(output_tx, depth_nyu_n, val_range=1000.0 / 10.0)) * 0.5, 0, 1)
 
                 loss_nyu = (0.1 * l_depth_t1) + (2.0 * l_grad_t1) + (10.0 * l_ssim_t1)
-                loss_lucent = (0.1 * l_depth_t2) + (2.0 * l_grad_t2) #+ (0 * l_ssim_t2)
-                loss_hole = (0.1 * l_depth_tx) + (2.0 * l_grad_tx) #+ (0 * l_ssim_tx)
+                loss_lucent = (0.1 * l_depth_t2) + (2.0 * l_grad_t2) + (0 * l_ssim_t2)
+                loss_hole = (0.1 * l_depth_tx) + (2.0 * l_grad_tx) + (0 * l_ssim_tx)
                 loss = (weight_t1loss[epoch] * loss_nyu) + (weight_t2loss[epoch] * loss_lucent) + (weight_txloss[epoch] * loss_hole)
 
                 # Log losses
@@ -298,100 +298,101 @@ def main():
 
 
 def LogProgress(model, writer, test_loader, test_loader_l, epoch, n, save_dir):
-    with torch.cuda.device(0):
-        model.eval()
+    with torch.no_grad():
+        with torch.cuda.device(0):
+            model.eval()
 
-        tot_len = len(test_loader_l)    # min(len(test_loader), len(test_loader_l))
-        testiter = iter(test_loader)
-        testiter_l = iter(test_loader_l)
+            tot_len = len(test_loader_l)    # min(len(test_loader), len(test_loader_l))
+            testiter = iter(test_loader)
+            testiter_l = iter(test_loader_l)
 
-        for i in range(tot_len):
-            # print("Iteration "+str(i)+". loop start:")
-            try:
-                sample_batched = next(testiter)
-                sample_batched_l = next(testiter_l)
-            except StopIteration:
-                print('  (almost) end of iteration.')
-                continue
+            for i in range(tot_len):
+                # print("Iteration "+str(i)+". loop start:")
+                try:
+                    sample_batched = next(testiter)
+                    sample_batched_l = next(testiter_l)
+                except StopIteration:
+                    print('  (almost) end of iteration.')
+                    continue
 
-            # (1) Pretext task : test and save
-            image_nyu = torch.autograd.Variable(sample_batched['image'].cuda())
-            depth_nyu = torch.autograd.Variable(sample_batched['depth'].cuda(non_blocking=True))
+                # (1) Pretext task : test and save
+                image_nyu = torch.autograd.Variable(sample_batched['image'].cuda())
+                depth_nyu = torch.autograd.Variable(sample_batched['depth'].cuda(non_blocking=True))
 
-            # print("   " + str(torch.max(depth_nyu)) + " " + str(torch.min(depth_nyu)))
+                # print("   " + str(torch.max(depth_nyu)) + " " + str(torch.min(depth_nyu)))
 
-            mask_raw = torch.autograd.Variable(sample_batched_l['mask'].cuda())
+                mask_raw = torch.autograd.Variable(sample_batched_l['mask'].cuda())
 
-            depth_nyu_n = DepthNorm(depth_nyu)
+                depth_nyu_n = DepthNorm(depth_nyu)
 
-            # Apply random mask to it
-            ordered_index = list(range(depth_nyu.shape[0])) # NOTE: NYU test batch size shouldn't be bigger than lucent's.
-            mask_new = mask_raw[ordered_index, :, :, :]
-            depth_nyu_masked = resize2d(depth_nyu_n, (480, 640)) * mask_new
+                # Apply random mask to it
+                ordered_index = list(range(depth_nyu.shape[0])) # NOTE: NYU test batch size shouldn't be bigger than lucent's.
+                mask_new = mask_raw[ordered_index, :, :, :]
+                depth_nyu_masked = resize2d(depth_nyu_n, (480, 640)) * mask_new
 
-            # Predict
-            depth_out_t1 = DepthNorm( model(image_nyu, depth_nyu_masked) )
+                # Predict
+                depth_out_t1 = DepthNorm( model(image_nyu, depth_nyu_masked) )
 
-            dn_resized = resize2d(depth_nyu, (240, 320))
+                dn_resized = resize2d(depth_nyu, (240, 320))
 
-            # Save image
+                # Save image
 
-            vutils.save_image(depth_out_t1, '%s/img/1out_%06d_%02d.png' % (save_dir, n, i), normalize=True, range=(0, 1000))
-            if not os.path.exists('%s/img/1in_000000_%02d.png' % (save_dir, i)):
-                vutils.save_image(depth_nyu_masked, '%s/img/1in_%06d_%02d.png' % (save_dir, n, i), normalize=True, range=(0, 1000))
-            save_error_image(depth_out_t1 - dn_resized, '%s/img/1diff_%06d_%02d.png' % (save_dir, n, i), normalize=True, range=(-300, 300))
+                vutils.save_image(depth_out_t1, '%s/img/1out_%06d_%02d.png' % (save_dir, n, i), normalize=True, range=(0, 1000))
+                if not os.path.exists('%s/img/1in_000000_%02d.png' % (save_dir, i)):
+                    vutils.save_image(depth_nyu_masked, '%s/img/1in_%06d_%02d.png' % (save_dir, n, i), normalize=True, range=(0, 1000))
+                save_error_image(depth_out_t1 - dn_resized, '%s/img/1diff_%06d_%02d.png' % (save_dir, n, i), normalize=True, range=(-300, 300))
 
-            del image_nyu, depth_nyu, depth_out_t1, dn_resized
+                del image_nyu, depth_nyu, depth_out_t1, dn_resized
 
-            # (2) Main task : test and save
-            image = torch.autograd.Variable(sample_batched_l['image'].cuda())
-            depth_in = torch.autograd.Variable(sample_batched_l['depth_raw'].cuda())
-            htped_in = DepthNorm(depth_in)
+                # (2) Main task : test and save
+                image = torch.autograd.Variable(sample_batched_l['image'].cuda())
+                depth_in = torch.autograd.Variable(sample_batched_l['depth_raw'].cuda())
+                htped_in = DepthNorm(depth_in)
 
-            depth_gt = torch.autograd.Variable(sample_batched_l['depth_truth'].cuda(non_blocking=True))
+                depth_gt = torch.autograd.Variable(sample_batched_l['depth_truth'].cuda(non_blocking=True))
 
-            # print('====//====')
-            # print(image.shape)
-            # print(" " + str(torch.max(image)) + " " + str(torch.min(image)))
-            # print(depth_in.shape)
-            # print(" " + str(torch.max(depth_in)) + " " + str(torch.min(depth_in)))
-            # print(depth.shape)
-            # print(" " + str(torch.max(depth)) + " " + str(torch.min(depth)))
+                # print('====//====')
+                # print(image.shape)
+                # print(" " + str(torch.max(image)) + " " + str(torch.min(image)))
+                # print(depth_in.shape)
+                # print(" " + str(torch.max(depth_in)) + " " + str(torch.min(depth_in)))
+                # print(depth.shape)
+                # print(" " + str(torch.max(depth)) + " " + str(torch.min(depth)))
 
-            if epoch == 0: writer.add_image('Train.1.Image', vutils.make_grid(image.data, nrow=6, normalize=True), epoch)
-            if epoch == 0: writer.add_image('Train.2.Depth', colorize(vutils.make_grid(depth_gt.data, nrow=6, normalize=False)), epoch)
+                if epoch == 0: writer.add_image('Train.1.Image', vutils.make_grid(image.data, nrow=6, normalize=True), epoch)
+                if epoch == 0: writer.add_image('Train.2.Depth', colorize(vutils.make_grid(depth_gt.data, nrow=6, normalize=False)), epoch)
 
-            depth_out_t2 = DepthNorm( model(image, htped_in) )
+                depth_out_t2 = DepthNorm( model(image, htped_in) )
 
-            writer.add_image('Train.3.Ours', colorize(vutils.make_grid(depth_out_t2.data, nrow=6, normalize=False)), epoch)
-            writer.add_image('Train.3.Diff', colorize(vutils.make_grid(torch.abs(depth_out_t2-depth_gt).data, nrow=6, normalize=False)), epoch)
+                writer.add_image('Train.3.Ours', colorize(vutils.make_grid(depth_out_t2.data, nrow=6, normalize=False)), epoch)
+                writer.add_image('Train.3.Diff', colorize(vutils.make_grid(torch.abs(depth_out_t2-depth_gt).data, nrow=6, normalize=False)), epoch)
 
-            # dl = depth_in.cpu().numpy()
-            # hl = htped_in.cpu().numpy()
-            # dr = resize2d(depth_in, (240, 320)).cpu().numpy()
-            # hr = resize2d(htped_in, (240, 320)).cpu().numpy()
-            # do = depth_out_t2.cpu().detach().numpy()
-            # gr = depth_gt.cpu().numpy()
-            # print('/=/=/=/=/=/')
-            # print("  Depth input (original size):" + str(np.min(dl)) + "~" + str(np.max(dl)) + " (" + str(np.mean(dl)) + ")")
-            # print("  Depth Normed (original size):" + str(np.min(hl)) + "~" + str(np.max(hl)) + " (" + str(np.mean(hl)) + ")")
-            #
-            # print("  Depth input (resized):" + str(np.min(dr)) + "~" + str(np.max(dr)) + " (" + str(np.mean(dr)) + ")")
-            # print("  Depth Normed (resized):" + str(np.min(hr)) + "~" + str(np.max(hr)) + " (" + str(np.mean(hr)) + ")")
-            #
-            # print("  Output converted to depth:" + str(np.min(do)) + "~" + str(np.max(do)) + " (" + str(np.mean(do)) + ")")
-            # print("  GT depth (original size):" + str(np.min(gr)) + "~" + str(np.max(gr)) + " (" + str(np.mean(gr)) + ")")
-            if not os.path.exists('%s/img/2truth_000000_%02d.png' % (save_dir, i)):
-                vutils.save_image(depth_in, '%s/img/2inDS_%06d_%02d.png' % (save_dir, n, i), normalize=True, range=(0, 500))
-                vutils.save_image(DepthNorm(htped_in), '%s/img/2inFF_%06d_%02d.png' % (save_dir, n, i), normalize=True, range=(0, 500))
-                vutils.save_image(depth_gt, '%s/img/2truth_%06d_%02d.png' % (save_dir, n, i), normalize=True, range=(0, 500))
-            vutils.save_image(depth_out_t2, '%s/img/2out_%06d_%02d.png' % (save_dir, n, i), normalize=True, range=(0, 500))
+                # dl = depth_in.cpu().numpy()
+                # hl = htped_in.cpu().numpy()
+                # dr = resize2d(depth_in, (240, 320)).cpu().numpy()
+                # hr = resize2d(htped_in, (240, 320)).cpu().numpy()
+                # do = depth_out_t2.cpu().detach().numpy()
+                # gr = depth_gt.cpu().numpy()
+                # print('/=/=/=/=/=/')
+                # print("  Depth input (original size):" + str(np.min(dl)) + "~" + str(np.max(dl)) + " (" + str(np.mean(dl)) + ")")
+                # print("  Depth Normed (original size):" + str(np.min(hl)) + "~" + str(np.max(hl)) + " (" + str(np.mean(hl)) + ")")
+                #
+                # print("  Depth input (resized):" + str(np.min(dr)) + "~" + str(np.max(dr)) + " (" + str(np.mean(dr)) + ")")
+                # print("  Depth Normed (resized):" + str(np.min(hr)) + "~" + str(np.max(hr)) + " (" + str(np.mean(hr)) + ")")
+                #
+                # print("  Output converted to depth:" + str(np.min(do)) + "~" + str(np.max(do)) + " (" + str(np.mean(do)) + ")")
+                # print("  GT depth (original size):" + str(np.min(gr)) + "~" + str(np.max(gr)) + " (" + str(np.mean(gr)) + ")")
+                if not os.path.exists('%s/img/2truth_000000_%02d.png' % (save_dir, i)):
+                    vutils.save_image(depth_in, '%s/img/2inDS_%06d_%02d.png' % (save_dir, n, i), normalize=True, range=(0, 500))
+                    vutils.save_image(DepthNorm(htped_in), '%s/img/2inFF_%06d_%02d.png' % (save_dir, n, i), normalize=True, range=(0, 500))
+                    vutils.save_image(depth_gt, '%s/img/2truth_%06d_%02d.png' % (save_dir, n, i), normalize=True, range=(0, 500))
+                vutils.save_image(depth_out_t2, '%s/img/2out_%06d_%02d.png' % (save_dir, n, i), normalize=True, range=(0, 500))
 
-            mask_small = resize2d(mask_raw, (240, 320))
-            save_error_image(resize2d(depth_out_t2, (480, 640)) - depth_in, '%s/img/2corr_%06d_%02d.png'
-                             % (save_dir, n, i), normalize=True, range=(-50, 50), mask=mask_raw)
-            save_error_image(depth_out_t2 - depth_gt, '%s/img/2diff_%06d_%02d.png' % (save_dir, n, i), normalize=True, range=(-50, 50), mask=mask_small)
-            del image, htped_in, depth_in, depth_gt, depth_out_t2, mask_raw, mask_small
+                mask_small = resize2d(mask_raw, (240, 320))
+                save_error_image(resize2d(depth_out_t2, (480, 640)) - depth_in, '%s/img/2corr_%06d_%02d.png'
+                                 % (save_dir, n, i), normalize=True, range=(-50, 50), mask=mask_raw)
+                save_error_image(depth_out_t2 - depth_gt, '%s/img/2diff_%06d_%02d.png' % (save_dir, n, i), normalize=True, range=(-50, 50), mask=mask_small)
+                del image, htped_in, depth_in, depth_gt, depth_out_t2, mask_raw, mask_small
 
 
 if __name__ == '__main__':
