@@ -235,10 +235,11 @@ def main():
                 l_grad_tx = grad_l1_criterion_masked(output_tx, depth_gt_n, mask_post)
                 l_ssim_tx = torch.clamp((1 - ssim(output_tx, depth_nyu_n, val_range=1000.0 / 10.0)) * 0.5, 0, 1)
 
-                loss_nyu = (0.1 * l_depth_t1) + (2.0 * l_grad_t1) + (10.0 * l_ssim_t1)
-                loss_lucent = (0.1 * l_depth_t2) + (2.0 * l_grad_t2) + (0 * l_ssim_t2)
-                loss_hole = (0.1 * l_depth_tx) + (2.0 * l_grad_tx) + (0 * l_ssim_tx)
-                loss = (weight_t1loss[epoch] * loss_nyu) + (weight_t2loss[epoch] * loss_lucent) + (weight_txloss[epoch] * loss_hole)
+                loss_nyu = (0.1 * l_depth_t1) + (1.0 * l_grad_t1) + (1.0 * l_ssim_t1)
+                loss_lucent = (0.1 * l_depth_t2) + (1.0 * l_grad_t2) + (1.0 * l_ssim_t2)
+                loss_hole = (0.1 * l_depth_tx) + (1.0 * l_grad_tx) + (1.0 * l_ssim_tx)
+                ldiv = weight_t1loss[epoch] + weight_t2loss[epoch] + weight_txloss[epoch]
+                loss = ((weight_t1loss[epoch] * loss_nyu) + (weight_t2loss[epoch] * loss_lucent) + (weight_txloss[epoch] * loss_hole)) / ldiv
 
                 # Log losses
                 losses_nyu.update(loss_nyu.data.item(), image_nyu.size(0))
@@ -247,7 +248,7 @@ def main():
                 losses.update(loss.data.item(), image_nyu.size(0) + image_raw.size(0))
 
                 # Update step
-                optimizer.zero_grad() #movied to its new position
+                optimizer.zero_grad() #moved to its new position
                 loss.backward()
                 optimizer.step()
 
@@ -265,10 +266,11 @@ def main():
                     'ETA {eta}\t'
                     'Loss {loss.val:.4f} ({loss.avg:.4f}) ||\t'
                     'NYU {l1.val:.4f} ({l1.avg:.4f}) [{l1d:.4f} | {l1g:.4f} | {l1s:.4f}]\t'
-                    'LUC {l2.val:.4f} ({l2.avg:.4f}) [{l2d:.4f} | {l2g:.4f}]\t'
-                    'TX {lx.val:.4f} ({lx.avg:.4f}) [{lxd:.4f} | {lxg:.4f}]'
+                    'LUC {l2.val:.4f} ({l2.avg:.4f}) [{l2d:.4f} | {l2g:.4f} | {l2s:.4f}]\t'
+                    'TX {lx.val:.4f} ({lx.avg:.4f}) [{lxd:.4f} | {lxg:.4f} | {lxs:.4f}]'
                     .format(epoch, i, N, batch_time=batch_time, loss=losses, l1=losses_nyu, l1d=l_depth_t1, l1g=l_grad_t1, l1s=l_ssim_t1,
-                            l2=losses_lucent, l2d=l_depth_t2, l2g=l_grad_t2, lx=losses_hole, lxd=l_depth_tx, lxg=l_grad_tx, eta=eta))
+                            l2=losses_lucent, l2d=l_depth_t2, l2g=l_grad_t2, l2s=l_ssim_t2,
+                            lx=losses_hole, lxd=l_depth_tx, lxg=l_grad_tx, lxs=l_ssim_tx, eta=eta))
                     # Note that the numbers displayed are pre-weighted.
 
                     # Log to tensorboard
@@ -295,7 +297,6 @@ def main():
 # BN might be an issue: https://www.kaggle.com/c/quickdraw-doodle-recognition/discussion/71366
 # TODO: add mask to error map // gradient clipping? // implement robust loss?
 #   Recently fixed: implement kyungmin's idea of "blended depth task"
-
 
 def LogProgress(model, writer, test_loader, test_loader_l, epoch, n, save_dir):
     with torch.no_grad():

@@ -20,7 +20,7 @@ def test_model(save_dir, save_img=True, evaluate=True):
 
     # load saved model
     model = Model_rgbd().cuda()
-    model.load_state_dict(torch.load(os.path.join(save_dir, 'models_asitwas/model_overtraining.pth')))
+    model.load_state_dict(torch.load(os.path.join(save_dir, 'model_overtraining.pth')))
     model.eval()
     print('model loaded for evaluation.')
 
@@ -173,7 +173,7 @@ def test_model(save_dir, save_img=True, evaluate=True):
         # print(errors_object_r)
 
 
-# TODO: print matrix with appropriate tabular formatting / objmask / new loss
+# DONE: print matrix with appropriate tabular formatting / objmask / new loss
 # class Metrics:
 #     def __init__(self, a0, a1, a2, a3, abs_rel, rmse, log_10):
 #         self.a0 = a0
