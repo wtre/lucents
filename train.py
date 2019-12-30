@@ -25,7 +25,7 @@ def main():
     parser.add_argument('--lr', '--learning-rate', default=0.0001, type=float, help='initial learning rate')
     parser.add_argument('--bs', default=4, type=int, help='batch size')
     args = parser.parse_args()
-    SAVE_DIR = 'models/191125_mod16'
+    SAVE_DIR = 'models/191230_mod18'
 
     with torch.cuda.device(0):
 
@@ -63,7 +63,7 @@ def main():
         grad_l1_criterion_masked = MaskedL1Grad()
 
         # Hand-craft loss weight of main task
-        interval1 = 1
+        interval1 = 4
         interval2 = 2
         weight_t1loss = [1] * (10*interval1) + [0] * interval2
         weight_txloss = [.0317] * interval1 + [.1] * interval1 + \
@@ -267,7 +267,7 @@ def main():
                     'Loss {loss.val:.4f} ({loss.avg:.4f}) ||\t'
                     'NYU {l1.val:.4f} ({l1.avg:.4f}) [{l1d:.4f} | {l1g:.4f} | {l1s:.4f}]\t'
                     'LUC {l2.val:.4f} ({l2.avg:.4f}) [{l2d:.4f} | {l2g:.4f} | {l2s:.4f}]\t'
-                    'TX {lx.val:.4f} ({lx.avg:.4f}) [{lxd:.4f} | {lxg:.4f} | {lxs:.4f}]'
+                    'TX {lx.val:.4f} ({lx.avg:.4f}) [{lxd:.4f} | {lxg:.4f} | {lxs:.4f}]\t'
                     .format(epoch, i, N, batch_time=batch_time, loss=losses, l1=losses_nyu, l1d=l_depth_t1, l1g=l_grad_t1, l1s=l_ssim_t1,
                             l2=losses_lucent, l2d=l_depth_t2, l2g=l_grad_t2, l2s=l_ssim_t2,
                             lx=losses_hole, lxd=l_depth_tx, lxg=l_grad_tx, lxs=l_ssim_tx, eta=eta))
@@ -278,6 +278,7 @@ def main():
 
                 if i % 750 == 0:
                     LogProgress(model, writer, test_loader, test_loader_l, niter, epoch*10000+i, SAVE_DIR)
+                    model.train()
                     path = os.path.join(SAVE_DIR, 'model_overtraining.pth')
                     torch.save(model.cpu().state_dict(), path) # saving model
                     model.cuda() # moving model to GPU for further training
