@@ -92,6 +92,7 @@ def colorize(value, vmin=10, vmax=1000, cmap='plasma'):
 def save_error_image(tensor, filename, nrow=8, padding=2,
                normalize=False, range=None, scale_each=False, pad_value=0, mask=None):
     """Export Diverging image grid.
+    green means negative value.
     Is a fork of vutils.save_image.
     Make sure range equals (-a, a)
     """

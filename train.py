@@ -63,7 +63,7 @@ def main():
         grad_l1_criterion_masked = MaskedL1Grad()
 
         # Hand-craft loss weight of main task
-        interval1 = 4
+        interval1 = 1
         interval2 = 2
         weight_t1loss = [1] * (10*interval1) + [0] * interval2
         weight_txloss = [.0317] * interval1 + [.1] * interval1 + \
@@ -227,17 +227,19 @@ def main():
                 l_grad_t1 = l1_criterion(grad_x(output_t1), grad_x(depth_nyu_n)) + l1_criterion(grad_y(output_t1), grad_y(depth_nyu_n))
                 l_ssim_t1 = torch.clamp((1 - ssim(output_t1, depth_nyu_n, val_range=1000.0 / 10.0)) * 0.5, 0, 1)
 
-                l_depth_t2 = l1_criterion_masked(output_t2, depth_gt_n, mask_post)
+                l_depth_t2 = l1_criterion_masked(output_t2, depth_gt_n, mask_post) # l1_criterion(output_t2, depth_gt_n)
                 l_grad_t2 = grad_l1_criterion_masked(output_t2, depth_gt_n, mask_post)
+                # l1_criterion(grad_x(output_t2), grad_x(depth_gt_n)) + l1_criterion(grad_y(output_t2), grad_y(depth_gt_n))
                 l_ssim_t2 = torch.clamp((1 - ssim(output_t2, depth_gt_n, val_range=1000.0/10.0)) * 0.5, 0, 1)
 
-                l_depth_tx = l1_criterion_masked(output_tx, depth_gt_n, mask_post)
+                l_depth_tx = l1_criterion_masked(output_tx, depth_gt_n, mask_post) # l1_criterion(output_tx, depth_gt_n)
                 l_grad_tx = grad_l1_criterion_masked(output_tx, depth_gt_n, mask_post)
+                # l1_criterion(grad_x(output_tx), grad_x(depth_gt_n)) + l1_criterion(grad_y(output_tx), grad_y(depth_gt_n))
                 l_ssim_tx = torch.clamp((1 - ssim(output_tx, depth_nyu_n, val_range=1000.0 / 10.0)) * 0.5, 0, 1)
 
                 loss_nyu = (0.1 * l_depth_t1) + (1.0 * l_grad_t1) + (1.0 * l_ssim_t1)
-                loss_lucent = (0.1 * l_depth_t2) + (1.0 * l_grad_t2) + (1.0 * l_ssim_t2)
-                loss_hole = (0.1 * l_depth_tx) + (1.0 * l_grad_tx) + (1.0 * l_ssim_tx)
+                loss_lucent = (0.1 * l_depth_t2) + (1.0 * l_grad_t2) #+ (1.0 * l_ssim_t2)
+                loss_hole = (0.1 * l_depth_tx) + (1.0 * l_grad_tx) #+ (1.0 * l_ssim_tx)
                 ldiv = weight_t1loss[epoch] + weight_t2loss[epoch] + weight_txloss[epoch]
                 loss = ((weight_t1loss[epoch] * loss_nyu) + (weight_t2loss[epoch] * loss_lucent) + (weight_txloss[epoch] * loss_hole)) / ldiv
 

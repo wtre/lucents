@@ -30,6 +30,7 @@ def test_model(save_dir, save_img=True, evaluate=True):
     with torch.no_grad():
         with torch.cuda.device(0):
             model.eval()
+            model.train()
 
             tot_len = len(test_loader_l)    # min(len(test_loader), len(test_loader_l))
             testiter = iter(test_loader)
@@ -206,4 +207,4 @@ def compute_errors(gt_, pred_, mask):
 
 
 if __name__ == '__main__':
-    test_model('models/191125_mod16')
+    test_model('models/191230_mod18')
