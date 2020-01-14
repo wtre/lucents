@@ -50,7 +50,7 @@ def main():
         prefix = 'densenet_' + str(batch_size)
 
         # Load data
-        train_loader, test_loader = getTrainingTestingData(batch_size=2)
+        train_loader, test_loader = getTrainingTestingData(batch_size=1)
         train_loader_l, test_loader_l = getTranslucentData(batch_size=1)
         # Test batch is manually enlarged! See getTranslucentData's return.
 

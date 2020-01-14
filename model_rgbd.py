@@ -6,6 +6,38 @@ from torch.autograd import Variable
 import os
 import copy
 from model import Model
+# https://github.com/zhanghang1989/PyTorch-Encoding/issues/171
+
+
+class Norm2d(nn.Sequential):    # Unused
+    def __init__(self, bs, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True):
+        super(UpSample, self).__init__()
+        self.newNorm2d = nn.BatchNorm2d(bs, eps=eps, momentum=momentum, affine=affine, track_running_stats=track_running_stats)
+
+    def forward(self, bs):
+        return self.newNorm2d(bs)
+
+
+def convert_Norm2d(module):
+    mod = module
+    if isinstance(module, torch.nn.modules.batchnorm._BatchNorm):
+        # mod = nn.GroupNorm(16, module.num_features, module.eps, module.momentum)
+        mod = nn.InstanceNorm2d(module.num_features, module.eps, module.momentum, module.affine,
+                             module.track_running_stats)
+        # mod = nn.BatchNorm2d(module.num_features, module.eps, module.momentum, module.affine, module.track_running_stats)
+
+
+        # mod.running_mean = module.running_mean
+        # mod.running_var = module.running_var
+        # if module.affine:
+        #     mod.weight.data = module.weight.data.clone().detach()
+        #     mod.bias.data = module.bias.data.clone().detach()
+    for name, child in module.named_children():
+        mod.add_module(name, convert_Norm2d(child))
+    # TODO(jie) should I delete model explicitly?
+    del module
+    return mod
+
 
 class UpSample(nn.Sequential):
     def __init__(self, skip_input, output_features):
@@ -39,6 +71,8 @@ class Decoder(nn.Module):
 
         self.conv3 = nn.Conv2d(features//16, 1, kernel_size=3, stride=1, padding=1)
 
+        # self = convert_Norm2d(self)
+
     def forward(self, features, features_depth):
         x_block0, x_block1, x_block2, x_block3, x_block4 = features[3], features[4], features[6], features[8], features[11]
         x_depth0, x_depth1 = features_depth[3], features_depth[4]
@@ -49,6 +83,7 @@ class Decoder(nn.Module):
         x_d3 = self.up3(x_d2, torch.cat([x_block1, x_depth1], dim=1))   # connect both features
         x_d4 = self.up4(x_d3, torch.cat([x_block0, x_depth0], dim=1))   # connect both features
         return self.conv3(x_d4)
+
 
 class Encoder(nn.Module):
     def __init__(self):
@@ -72,6 +107,11 @@ class Encoder(nn.Module):
         self.depth_encoder = copy.deepcopy(m.encoder.original_model.features[0:5])
         # change #(input channel) from 3 to 1
         self.depth_encoder.conv0 = nn.Conv2d(1, 96, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
+
+        self.original_model = convert_Norm2d(self.original_model)
+        self.depth_encoder = convert_Norm2d(self.depth_encoder)
+
+        print(self._modules.items())
 
     def forward(self, x, y):
         features = [x] #[x[:,:3,:,:]]
